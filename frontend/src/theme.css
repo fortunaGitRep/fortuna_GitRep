@@ -1,0 +1,17 @@
+:root {
+  --brand-teal: #083F41;
+
+  --surface-1: #FAFAF8;
+  --surface-2: #FFFFFF;
+
+  --border: #E5E3DE;
+  --border-strong: #D4D1CA;
+
+  --text-primary: #1A1A1A;
+  --text-secondary: #6B6B6B;
+  --text-muted: #9A9A9A;
+
+  --coral: #E8A87C;
+  --coral-text: #8A3E17;
+  --coral-bg: #FBE9DD;
+}
