@@ -9,6 +9,8 @@ as they're built.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from dhan_client import dhan
+
 app = FastAPI(title="Fortuna API")
 
 # Allows the React frontend (running on localhost:5173) to call this backend
@@ -30,3 +32,8 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/dhan/funds")
+def get_dhan_funds():
+    return dhan.get_fund_limits()
