@@ -17,8 +17,10 @@ Repo root: `D:\Takara\Fortuna\_Repository`
 - [ ] Deploy the frontend somewhere with a real URL — prerequisite for real day-to-day mobile access (not tied to home wifi) and for PWA home-screen install.
 - [ ] PWA install button (home-screen icon) — needs `vite-plugin-pwa`, manifest, icons, service worker; also needs HTTPS on a real device, which depends on the deployment step above.
 - [ ] **Data architecture decision** — what Fortuna actually persists in Supabase Postgres vs computes on demand in Python. Not yet decided: "outputs only" (gate results, positions, watchlist, signal history — small, fine on free tier) vs "bulk historical OHLCV cached in Postgres" (wrong tool for that volume — flat files or a time-series store would fit better). Shapes the whole backend/signal-engine build, so worth deciding before that starts. See `Fortuna-Learning-Concepts.md` §6.
-- [ ] Connect Dhan API — needs to happen before any signal engine work, since indicators/gates have nothing to compute on without real price data flowing in
-- [ ] Signal engine itself — Direction Funnel logic (MAC→NAT→FLO→PRE→ENG), gates, indicators — still only exists as research PDFs, not code. Depends on Dhan API connection above.
+- [x] ~~Connect Dhan API~~ — **done 2026-08-09.** Trading/auth APIs live via TOTP flow, `/dhan/funds` smoke test returns real account data. Note: *Data* APIs (historical OHLCV + live feed) still gated on the paid subscription (~₹499/mo, currently Inactive) — signal engine can't compute until that's active
+- [ ] **Subscribe to Dhan Data API** (~₹499/mo) — now the actual blocker for any real price data. Trading/auth is connected, but historical OHLCV and live feed need this active. Gates the signal engine below.
+- [ ] Move Dhan token generation off startup-blocking — currently `generate_fresh_token()` runs at import time, so a failed TOTP call stops the server booting. Fine for now; needs a lazy/scheduled refresh before real day-to-day use.
+- [ ] Signal engine itself — Direction Funnel logic (MAC→NAT→FLO→PRE→ENG), gates, indicators — still only exists as research PDFs, not code. Depends on Dhan Data API subscription above.
 
 ---
 
@@ -82,4 +84,37 @@ Repo root: `D:\Takara\Fortuna\_Repository`
 Committed and pushed: `Build five-tab UI shell: Inbox, Buy, Exit, Positions, Watchlist with TabBar, theme, and logout confirm`
 
 **Carried to next session:** connect the Dhan API before any signal engine work — indicators/gates have nothing to compute on without real price data flowing in.
+
+---
+
+### 2026-08-09 — Dhan API connection (auth + smoke test)
+
+**Goal for the session:** connect the Dhan API and prove real account data flows into the backend.
+
+**What was done:**
+- Reviewed Dhan's full offering before building (Trading APIs free; Data APIs paid ~₹499/mo; Dhan Cloud; MCP; Conditional Orders; Postback) and confirmed Fortuna's Direction Funnel is *not* replaceable by Dhan's off-the-shelf conditional-order triggers — the multi-gate sequential pipeline is genuinely custom logic
+- Decided **direct API over MCP** for order placement — MCP needs an interactive client in the loop and bakes in confirmation guardrails aimed at conversational trading; Fortuna's automated pipeline calls the SDK directly instead. (MCP still useful as a personal dev tool, separate from the product.)
+- Decided **not** to route Fortuna's FastAPI backend through Dhan Cloud — that runtime is for standalone scheduled strategy scripts, not an always-on request/response server. Dhan Cloud reconsidered later as one option for *just* the signal-engine job, not the backend.
+- Generated the Dhan access token ("Fortuna" app, Access Token mode — not API Key mode, since this is a personal single-account build)
+- Set up **TOTP** for headless token generation, so the backend can mint fresh 24h tokens without manual daily regeneration
+- Installed `dhanhq`, `pyotp`; wired `python-dotenv` via `load_dotenv()`
+- Built `dhan_client.py`: reads `DHAN_CLIENT_ID` / `DHAN_PIN` / `DHAN_TOTP_SECRET` from `.env`, `generate_fresh_token()` calls Dhan's `generateAccessToken` endpoint with a live TOTP code, then constructs the `dhanhq` client with that fresh token
+- Added `/dhan/funds` smoke-test route to `main.py` calling `dhan.get_fund_limits()`
+- **Tested live:** `/dhan/funds` returned `"status":"success"` with the real `dhanClientId` and account balance fields — full chain confirmed end to end (`.env` → TOTP token generation → authenticated Dhan call → real data)
+
+**Decisions made:**
+- Client ID is required by *both* the token-generation call and every API call — it's the account identifier, separate from the token; not something the TOTP flow removes
+- Token currently generates **at import/startup time** — deliberately, so a failed TOTP call fails loudly during the smoke test. Flagged as needing a lazy/scheduled refresh before real use (now an open item)
+- `.env` for the backend holds three keys: `DHAN_CLIENT_ID`, `DHAN_PIN`, `DHAN_TOTP_SECRET` — no static access token stored, since it's minted at runtime
+
+**Gotchas hit:**
+- `python-dotenv` doesn't auto-load — needed an explicit `load_dotenv()` call before reading `os.environ`
+- Editor "import dhanhq could not be resolved" was a Pylance interpreter mismatch (cosmetic), not a real missing-module error — the package was installed to the system Python 3.11
+
+**Not yet done / carried forward:**
+- Data API subscription (~₹499/mo) is the real next blocker — no historical/live price data until it's active
+- Scheduled/lazy token refresh (off startup-blocking)
+- Signal engine still depends on the above
+
+**Carried to next session:** subscribe to the Dhan Data API, then begin turning Direction Funnel research into backend code against real OHLCV.
 

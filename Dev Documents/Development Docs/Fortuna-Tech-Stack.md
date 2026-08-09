@@ -27,13 +27,17 @@
 | Tech | What it is | Status |
 |---|---|---|
 | Python 3.11 | Backend language | 🟢 |
-| FastAPI | Python web framework — currently only a health-check endpoint | 🟡 |
-| Uvicorn | ASGI server that actually runs the FastAPI app | 🟡 |
-| `python-dotenv` | Loads `.env` config into Python | 🟡 |
+| FastAPI | Python web framework — now serves a live authenticated Dhan route (`/dhan/funds`) alongside health check | 🟢 |
+| Uvicorn | ASGI server that actually runs the FastAPI app | 🟢 |
+| `python-dotenv` | Loads `.env` config into Python — wired up via `load_dotenv()` in `dhan_client.py` | 🟢 |
 | VectorBT | Backtesting engine (NumPy/Numba-based) | ⚪ |
 | TA-Lib | Technical indicator library (VWAP, ADX, Supertrend, Bollinger Bands, etc.) | ⚪ |
 | pandas-ta-classic | Additional technical indicators on top of pandas | ⚪ |
-| Dhan API | Broker API — live NSE market data + order execution | ⚪ |
+| `dhanhq` (Python SDK) | Official Dhan client — constructs `DhanContext` + `dhanhq` instance, wraps all API calls | 🟢 |
+| `pyotp` | Generates the live 6-digit TOTP code for headless token generation | 🟢 |
+| `requests` | HTTP client — calls Dhan's `generateAccessToken` endpoint for the TOTP flow | 🟢 |
+| Dhan API — Trading/Auth | Broker API — order execution, funds, positions (free tier). Auth via TOTP flow, tested live (`/dhan/funds` returns real account data) | 🟢 |
+| Dhan API — Data | Historical OHLCV + live market feed. Requires paid Data API subscription (~₹499/mo), currently **Inactive** on account | ⚪ subscription pending |
 | Direction Funnel logic (MAC→NAT→FLO→PRE→ENG gates) | Fortuna's own signal-generation logic | ⚪ |
 
 ---
@@ -60,6 +64,7 @@
 | Email allowlist | Restrict sign-in to your own email only | ⚪ |
 | 6-digit PIN login | Server-verified (hashed) credential, cross-device | ⚪ |
 | Session expiry tuning | Currently Supabase default (1hr token, silent refresh) | ⚪ decision pending |
+| Dhan TOTP token generation | Headless access-token generation via PIN + TOTP secret (`generate_fresh_token()`), tested live. Currently runs at startup only | 🟢 (startup only; scheduled refresh not yet built) |
 
 ---
 
