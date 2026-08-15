@@ -4,6 +4,8 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
+**Last updated:** 2026-08-15 (VIX percentile + PRE-1 decision verdict)
+
 ---
 
 ## Git hygiene (reference — set once, don't re-derive)
@@ -62,7 +64,7 @@ Thumbs.db
 
 ---
 
-## Open items (current)
+## Open items (current) — as of 2026-08-15
 
 - [ ] Fix leftover default styling/behavior as five-tab shell gets built (Vite starter `App.css` still present, unused, not deleted)
 - [ ] Move from placeholder `/` page to the real five-tab shell (Inbox, Buy, Exit, Positions, Watchlist), using the six existing HTML mockups as the visual reference (`fortuna_cash_inbox_correct_teal.html`, `fortuna_cash_buy_tab_correct_teal.html`, `fortuna_cash_exit_correct_teal.html`, `fortuna_cash_watchlist_correct_teal.html`, `fortuna_cash_watchlist_labeled_stages.html`, `fortuna_cash_glossary_corner_icon.html`)
@@ -90,6 +92,8 @@ Thumbs.db
 - [ ] PRE-3 gap classifier needs Stage-5 inputs (ATR/trend) it won't have until `Module_F_Tech_Indicators_Funnel` exists — degrades to "uncertain" gracefully for now.
 - [ ] No persistence for `Module_F_Global_Gate_Funnel` runs yet — returns a `Stage1To4Result` object, nothing written to Supabase. A `fortuna_global_gate_runs` audit table makes sense (whole point of the Corrections Log is auditing wrong calls).
 - [ ] Model string in `ai_gateway.py` (`claude-sonnet-4-5`) not verified against the live API account.
+- [ ] **VIX regime thresholds (25/75/90 percentile) need India-VIX backtesting** — currently sensible defaults, but should be validated/tuned against India VIX's own history before fully trusting the regime bands for live sizing.
+- [ ] **True VIX acceleration flag** — `recent_volatility_stress` is cross-sectional (value unusual recently vs annually), not a time-change. A genuine "VIX rising over N days" flag (multi-day % change) would be a stronger stress signal — future enhancement.
 - [ ] **Signal engine Stage 5 (`Module_F_Tech_Indicators_Funnel`, ENG-1..11)** — empty placeholder package only. Depends on real Nifty OHLC (now available). Combining Stage 1-4 + Stage 5 = the `Module_F_Foundation_Gate_Funnel` combiner (parent `__init__.py`, currently a placeholder comment).
 
 ---
@@ -283,3 +287,31 @@ backend/
 **State now:** entire market_data foundation live + verified end-to-end — 3 indices backfilled with ~1yr of IST-correct data, integrity-checked, in Supabase. THIS is a real commit point (working, tested, real data — not mocks).
 
 **Carried to next session:** VIX percentile calc (reads the stored closes), then wire real VIX/OHLC into the Global Gate orchestrator (replacing the hardcoded mocks in `/funnel/global-gate/run`).
+
+---
+
+### 2026-08-15 (cont'd) — VIX percentile + PRE-1 decision verdict (first live funnel component)
+
+**Goal:** build the VIX percentile calc and PRE-1's decision verdict, running on the real backfilled VIX data.
+
+**Major design decision — VIX now used in BOTH modules (reversing the earlier 1-4 / Stage-5 separation):** The original separation was based on an assumption that later proved wrong — that Stage 1-4 would only use Claude+web_search (no Dhan data), so it was "the AI layer" and Stage 5 was "the technical layer." Now that Stage 1-4 also pulls Dhan data (VIX, OHLC), that dividing line dissolved. New design: **VIX serves decision in this module (regime/size/GO-NO-GO) AND direction in Stage 5 (as a confirmation-only `vix_direction` input alongside price).** The safety principle from the v0.9 Corrections Log is preserved automatically — VIX's directional contribution only ever lives in Stage 5 *among* the price/technical signals, so it structurally can't vote on direction from pre-market data alone. Overarching architecture: every gate/filter emits its own individual verdict, then the system rolls all individual verdicts into two high-probability rollups — one for decision, one for direction.
+
+**Built `modules/market_data/vix_regime.py`:**
+- `calculate_percentile(current, priors)` — pure, unit-tested. Mid-rank tie handling `(below + 0.5*equal)/N`. Ranks against PRIOR observations only (excludes the current value — the "prior observations only" rule).
+- Two windows: 252-day (primary regime) + 63-day (recent stress). Standard, fact-checked against the Perplexity VIX brief.
+- Regime bands on the 252 PERCENTILE not raw VIX (>=90 extreme, >=75 high, <=25 low, else normal) — self-calibrates to India VIX's own history, avoiding US-VIX absolute thresholds that don't transfer.
+- `evaluate_vix_decision()` — emits PRE-1's individual DECISION verdict: regime, GO/NO-GO, size guidance, confidence multiplier. `direction_weight = 0.0` structurally (v0.9/v3 PRE-1 rule).
+
+**VIX conceptual grounding (from Perplexity research, fact-checked):** VIX is a risk/regime/size gate, NOT a direction signal — rising VIX = fear/hedging but can rise before/during/after a move, so never standalone directional. Percentile answers "how unusual is today's VIX vs its own history" (regime-relative); raw value answers "how big might moves be". Use India VIX for Nifty (not Cboe VIX). 252-day primary + 63-day recent is the standard window pair.
+
+**Perplexity code-review round (caught real issues, all fixed):**
+- BUG: thin history still emitted a confident regime (10 priors + 95th pctl → false EXTREME). Fixed: regime → UNKNOWN when priors < MIN_PRIORS_FOR_CONFIDENCE (40).
+- Added finite/positive value validation (drop None/NaN/<=0 before ranking).
+- Renamed `recent_acceleration` → `recent_volatility_stress` — honest: it's cross-sectional (value unusual recently vs annually), NOT a time-change. True multi-day-change acceleration flagged as a future enhancement.
+- Relabeled `current_vix` → `latest_close_vix` — it's the latest COMPLETED close (pre-market ~08:45 IST run), not a live "today" value. Decided: **live intraday VIX mode dropped entirely** — other gates handle in-session decisions; live VIX would add noise not decision quality (Ash's call).
+
+**Testing:** `test_vix_regime.py` — 7 unit tests (percentile math, regime-relativity, thin-history→UNKNOWN, validation, empty-data, calm/extreme branches). Runs without DB (monkeypatches the store read). 7/7 pass locally.
+
+**Live result on real data (246 backfilled VIX closes):** VIX 11.31 → 252-pctl 24.5 → regime LOW → GO, normal size, confidence 1.2, direction_weight 0. `priors_252_used: 245` (just under full window, handled gracefully). First fully-real, tested, fact-checked funnel component producing a live decision.
+
+**Carried to next session:** wire `evaluate_vix_decision()` into PRE-1 inside the Global Gate orchestrator (replacing the mock VIX percentile), then wire real Nifty OHLC for CPR/gap (replacing the other mocks). Then Stage 5 build (incl. `vix_direction`).

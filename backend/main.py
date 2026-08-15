@@ -31,6 +31,12 @@ from modules.market_data.nse_calendar import ensure_calendar
 
 from modules.market_data.sync import backfill_and_verify_all
 
+from modules.market_data.vix_regime import evaluate_vix_decision
+
+@app.get("/market-data/vix-regime")
+async def vix_regime_check():
+    return evaluate_vix_decision().__dict__
+
 @app.get("/market-data/backfill")
 async def market_data_backfill():
     results = backfill_and_verify_all()

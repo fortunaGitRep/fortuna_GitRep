@@ -102,6 +102,22 @@ Fortuna is meant to run autonomously and place real trades — "the Dhan call fa
 
 ---
 
+## 12. Percentile rank as a regime-relative measure (vs raw values)
+
+**Fundamentals:**
+A **raw value** answers "what is it?" A **percentile rank** answers "how does this compare to its own history?" — specifically, "what fraction of past observations were below today's value?" The formula (mid-rank convention, which handles ties fairly) is `(count_below + 0.5 × count_equal) / N × 100`. The power of a percentile is that it's **self-calibrating**: the same raw number means different things in different eras, but its percentile always means the same thing ("higher than X% of recent history"). Two rules that matter for correctness: (1) rank against **prior observations only** — never include the value you're ranking in its own reference set, or you contaminate the result; and (2) in any historical/backtest use, only compare each date against values *before* it — never the full dataset — or future data leaks into the past (look-ahead bias).
+
+**Why Fortuna needed it:**
+India VIX at 11 vs 14 vs 20 tells you almost nothing on its own — because "high" volatility is relative to the current regime. A VIX of 14 is *extreme* in a market that's been sitting at 10-12, but *calm* in one that's been at 18-22. Fortuna needs to size positions and set trade/no-trade gates off the *volatility regime*, and a raw VIX threshold (like the US-market convention "above 20 = high") would silently mislead as the regime drifts over months. The percentile solves this: PRE-1 classifies regime off the **252-day percentile** (is today unusual over the past year?) plus a **63-day percentile** (is it unusual recently?). A worked test made this vivid — the *same* VIX of 14 came out as the 100th percentile against a calm year but the 0th against a stressed year. That's exactly the regime-relative context a raw number can't give.
+
+**What I rejected, and why:**
+- *Raw VIX thresholds (e.g. >20 = high):* These are US-VIX conventions that don't transfer to India VIX, and worse, they rot as the volatility regime shifts — a fixed threshold silently means something different a year later. Percentile self-calibrates and doesn't need re-tuning as the regime moves.
+- *Including today in its own ranking set:* Mild self-contamination — today's value nudges its own percentile. Ranking strictly against prior observations is correct.
+- *Trusting a percentile off thin history:* A 95th percentile computed from 10 observations is noise dressed as signal. Below a minimum sample size, the honest output is "unknown regime," not a confident-looking number. (This was a real bug caught in review — the code emitted `EXTREME` off 10 priors before the fix forced `UNKNOWN`.)
+- *Treating percentile as a direction signal:* A 95th-percentile VIX does not mean "sell" and a 10th-percentile does not mean "buy" — it's a *risk-regime* measure (how big might moves be, how much to size down), never a directional predictor. This is why VIX carries `direction_weight = 0` structurally in Fortuna.
+
+---
+
 # Database
 
 ## 3. Row Level Security (RLS) on Supabase tables
