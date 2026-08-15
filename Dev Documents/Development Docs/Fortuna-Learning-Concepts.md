@@ -59,7 +59,46 @@ Fortuna's whole reason for being a PWA (Entry #1) is the phone-alert-to-action l
 
 # Backend
 
-*No entries yet — the FastAPI backend currently only has a health-check endpoint. Real backend concepts (API design, the signal engine, Dhan API integration) will be logged here once that work starts.*
+## 9. Timezone-correct epoch handling (Unix timestamps, UTC vs local, IST pinning)
+
+**Fundamentals:**
+A **Unix timestamp** (a.k.a. epoch time) is a single number: the count of seconds since 1970-01-01 00:00:00 UTC. It represents an absolute *instant* — the same number everywhere on Earth, with no timezone baked in. A timezone only matters when you convert that instant back into a human calendar date/time. The trap: `datetime.fromtimestamp(ts)` in Python, called *without* a timezone argument, converts using **the machine's local timezone**. So the same epoch number produces a different wall-clock date depending on what server it runs on. The fix is to convert with an *explicit* timezone (`datetime.fromtimestamp(ts, tz=SOME_ZONE)`), never relying on the machine's local setting.
+
+**Why Fortuna needed it:**
+Dhan returns each daily candle's timestamp as epoch seconds, stamped at **midnight IST** of that trading day. Midnight IST = 18:30 UTC the *previous* day. So a naive `fromtimestamp()` on a UTC server (like Render, where the app will deploy) would convert that instant to the previous calendar date — every single trading day silently shifted back by one. That date is the anchor for the CPR calc (which prior day's high/low/close), the gap calc, and the VIX percentile. A one-day drift wouldn't crash anything — it would just quietly compute the wrong direction verdict on a live trade. This is the most dangerous kind of bug: silent, correct-looking, and only wrong in production. Fixed with an explicit `IST = timezone(timedelta(hours=5, minutes=30))` and an `epoch_to_ist_date()` helper, then **verified against known real data** (Dhan's close of 24,471.70 had to map to 2026-08-11, the date already referenced in the build log — and it did).
+
+**What I rejected, and why:**
+- *Relying on `fromtimestamp()` with no timezone:* Works by luck on the dev laptop (which happens to be set to IST), fails silently on a UTC production server. The definition of a latent bug — rejected precisely because it *looks* fine locally.
+- *Storing the raw epoch and converting at read time everywhere:* Pushes the same timezone trap onto every future caller instead of solving it once at the fetch boundary. Converting to a real IST `date` immediately, at the single point data enters the system, is the clean fix.
+
+---
+
+## 10. Idempotency & upserts (safe retries, no duplicates)
+
+**Fundamentals:**
+An operation is **idempotent** if doing it multiple times has the same effect as doing it once. Turning a light switch to "on" is idempotent (flip it on twice, still on); pressing a "+1" button is not (each press changes the result). In data systems this matters enormously because networks and jobs fail and get retried — if a retry double-charges a card or double-inserts a row, that's a real bug. An **upsert** ("update or insert") is the database primitive for idempotent writes: given a key, if a row with that key exists, update it; otherwise insert it. Combined with a **primary key** (a column whose value must be unique per row), an upsert keyed on that PK can never create a duplicate no matter how many times it runs.
+
+**Why Fortuna needed it:**
+Fortuna's data jobs run on schedules and can be re-run (a crashed sync, a manual re-trigger, an overlapping fetch window). If the daily VIX write or the calendar populate created duplicate rows on every re-run, the history feeding the percentile would be corrupt. Every write in the `market_data`/calendar layer is an upsert on a `trade_date` primary key — so re-running is always safe, and the "skip if already done" guards are purely an *efficiency* optimization (avoid pointless network/DB work), not a correctness one. That separation matters: correctness comes from the PK+upsert, so even if a skip-guard has a bug, data can't be duplicated.
+
+**What I rejected, and why:**
+- *Plain `INSERT`:* Would throw a duplicate-key error (or worse, silently duplicate without a PK) on any re-run. Makes every job a one-shot that can't be safely retried — the opposite of what an autonomous system needs.
+- *"Check if exists, then insert" in application code:* Two round-trips, and a race condition between the check and the insert (two runs could both check "not there" then both insert). The database's atomic upsert does it correctly in one operation.
+
+---
+
+## 11. Resilient external calls — timeouts, bounded retries, exponential backoff
+
+**Fundamentals:**
+Any call to an external service (a broker API, a data feed) can fail or hang — that's not an edge case, it's the normal state of networks. Three standard defenses: a **timeout** (never wait indefinitely — cap how long a single call can block, so one hung request can't freeze the whole system); **bounded retries** (on failure, try again, but a *fixed* number of times — infinite retries just turn one failure into an infinite hang); and **exponential backoff** (wait longer between each retry — 1s, then 2s, then 4s — rather than hammering a struggling service with instant retries, which often makes the overload worse). Together these turn a transient network blip into a self-healing non-event instead of a crash.
+
+**Why Fortuna needed it:**
+Fortuna is meant to run autonomously and place real trades — "the Dhan call failed and the whole job died" is not acceptable for something that must be reliable unattended. The `market_data` fetch layer wraps every Dhan call in bounded retry (3 attempts) with exponential backoff, so a momentary network hiccup retries and succeeds instead of aborting the run. An honest gap was flagged and *not* faked: a true per-call timeout needs the `dhanhq` SDK to expose one (unverified), so rather than claim a timeout the code doesn't have, the retry *ceiling* bounds total failure time and the limitation is documented in the module docstring — better to state a known gap than pretend robustness.
+
+**What I rejected, and why:**
+- *A single call with no retry:* Any transient failure = whole job fails. Too brittle for unattended operation.
+- *Infinite retries:* Turns a persistently-down service into an infinitely-hanging job — worse than failing fast, because nothing alerts and nothing proceeds.
+- *Instant retries with no backoff:* Hammering a rate-limited or struggling API with back-to-back retries often trips *more* blocking (we literally hit Dhan's "once every 2 minutes" TOTP limit this way via auto-reload). Backoff is what makes retries help rather than hurt.
 
 ---
 
@@ -96,6 +135,23 @@ Whether Supabase Postgres is used to store bulk historical market data, or only 
 - **Bulk historical OHLCV for a full stock universe, years deep** — a fundamentally different volume, and a relational row-store isn't the right tool for it regardless of local or cloud. That pattern wants flat files (Parquet) or a time-series store instead.
 
 **Status:** Not yet decided which pattern Fortuna uses. This directly shapes the backend/signal-engine architecture — worth deciding deliberately before that gets built, rather than defaulting into "put everything in Supabase" by momentum. Tracked as open in `Fortuna-Build-Log.md`.
+
+---
+
+## 12. Source of truth, and using the authoritative source for integrity checks
+
+**Fundamentals:**
+When the same fact is available from multiple places, the **source of truth** is the one authoritative origin you treat as correct when they disagree — everything else is a copy that can be stale or wrong. A recurring engineering mistake is validating data against a *derived* or *republished* copy instead of the origin. Two related ideas: an **idempotency/integrity check** verifies stored data actually matches what it should be (not just "did the write return success", but "is the data really all there and correct"); and **data provenance** — knowing *where* each piece of data came from — is what lets you trust it. For any autonomous system, "the write said OK" is not the same as "the data is correct and complete" — those must be checked separately.
+
+**Why Fortuna needed it:**
+Two concrete cases hit this on the same day. First, NSE trading-holiday dates: the republished finance sites (Groww, ClearTax, etc.) openly *contradicted each other* — Holi was listed as both March 3 and March 14 across sources. Hardcoding from any of them would have silently gated live trades on a wrong calendar. Only NSE's own `holiday-master` API is authoritative, so that became the single source and the republished lists were discarded entirely. Second, for verifying the stored index history has no gaps: the cleanest check isn't "does our data match some external calendar" but "does our stored set of dates exactly equal the set of dates **Dhan itself returns**" — because Dhan's own feed is the authoritative source for what trading days *its* data covers. Checking data against the same source that produced it is a provably tight integrity check, with no third-party calendar to drift out of sync.
+
+**What I rejected, and why:**
+- *Hardcoding the holiday list from republished finance blogs:* They conflict with each other and go stale — fatal for something gating real trades. Rejected the moment the date contradictions showed up.
+- *Building an independent NSE trading calendar purely to validate Dhan's data gaps:* Over-engineered — it introduces a *second* source that can disagree with Dhan, when the tightest check is simply comparing Dhan's stored dates against Dhan's returned dates. The calendar earns its place for the *forward-looking* "is today a holiday, skip the fetch" job, not for backward integrity.
+- *Trusting "write returned success" as proof the data is correct:* An upsert reporting OK doesn't prove every expected row is present and contiguous. For autonomous trading, integrity is verified separately (post-write date/count checks), not assumed from a success response.
+
+**Design note — layered gate for "no loopholes":** because Fortuna trades unattended, the guiding principle became belt-and-suspenders: the NSE calendar is only a sync-time *optimization*, and the real pre-trade gate is a **live market-status check** against the broker. A missing/wrong calendar can then never *cause* a bad trade — worst case it wastes a fetch — because the live check is the actual authority. Failure mode is bounded to "fail safe" (don't trade on absent/stale data) rather than "fail dangerous" (trade on a wrong assumption).
 
 ---
 
