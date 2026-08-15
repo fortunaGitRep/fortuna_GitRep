@@ -6,6 +6,62 @@ Repo root: `D:\Takara\Fortuna\_Repository`
 
 ---
 
+## Git hygiene (reference — set once, don't re-derive)
+
+**`.gitignore` lives at the REPO ROOT** (`D:\Takara\Fortuna\_Repository\.gitignore`), not inside `backend/` — it must cover both backend (Python) and frontend (Vite/node) paths.
+
+Current `.gitignore` content:
+
+```gitignore
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Python (backend) ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- Node / Vite (frontend) ---
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Supabase local runtime ---
+supabase/.temp/
+supabase/.branches/
+
+# --- Editor / OS ---
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# --- Build / misc ---
+*.log
+.cache/
+```
+
+**Never committed:** `.env` (holds Dhan secrets, `F_ANTHROPIC_API_KEY`, Supabase service-role key). Only `env.example` / `.env.example` is safe to commit. A `.gitignore` only stops *untracked* files — if `.env` or `__pycache__` were ever committed before, they stay tracked until `git rm --cached <path>` untracks them. Verify before any commit: `git status` (no `.env`/`__pycache__` staged) and `git ls-files | findstr ".env"` (should show only the example file).
+
+**Pre-commit checklist:** (1) `.gitignore` at root, (2) no double extensions in `db/migrations/` (e.g. the `001_...sql.sql` slip — should be single `.sql`), (3) `market_data/__init__.py` exists, (4) `git status` clean of secrets/pycache.
+
+---
+
 ## Open items (current)
 
 - [ ] Fix leftover default styling/behavior as five-tab shell gets built (Vite starter `App.css` still present, unused, not deleted)
@@ -25,7 +81,8 @@ Repo root: `D:\Takara\Fortuna\_Repository`
 - [ ] **Run the index backfill** — `sync.py` will pull ~365 days for VIX/Nifty/GIFT into the (currently empty) `fortuna_*_daily` tables on first run. Not done yet. Also resolves the GIFT-Nifty verification (does Dhan actually serve security_id 5024?).
 - [ ] **Wire real Dhan VIX/OHLC into the orchestrator** — `Module_F_Global_Gate_Funnel`'s `/funnel/global-gate/run` still uses hardcoded mock VIX/OHLC. Swap for real `market_data` fetches once backfill + percentile are done.
 - [ ] **Weekend/holiday integrity check for index data** — the calendar (`fortuna_nse_calendar`) now exists; use it to verify the index tables have every expected trading day (no silent gaps). Closes the autonomous-trading "no loopholes" concern.
-- [ ] **Annual calendar refresh scheduling** — `ensure_calendar()` works and is loaded for 2026; needs a scheduled once-a-year run (+ `force_holidays=True` path for mid-year NSE circular updates). Currently manual via `/market-data/nse-calendar/sync`.
+- [ ] **Scheduling / trigger mechanism (deferred to deploy time)** — decoupled from the functions themselves (backfill/sync/calendar all run correctly regardless of trigger). Options to decide later: **Render Cron Jobs** (preferred — managed, survives restarts, one mechanism for daily market-data sync + yearly calendar refresh + eventually the funnel run) vs a **frontend button** for manual runs (e.g. a "refresh calendar" button pushed each January). Can't schedule until the backend is deployed to Render (localhost can't be cron-triggered) — so this is a go-live task. For now everything is manual via routes.
+- [ ] **Annual calendar refresh** — `ensure_calendar()` must run once a year (late Dec/early Jan) to load the next year's NSE holidays before the daily sync starts adding that year's dates. Handled by whatever trigger mechanism above. The integrity-check coverage-floor clamp (added 2026-08-15) makes a late refresh fail-safe rather than broken — pre-calendar dates are stored/used but not calendar-verified.
 - [ ] **Live market-status check before trading** — the REAL trade gate (calendar is only a sync-time optimization). Dhan's `dhanhq` library exposes a market-status capability; wire this as the pre-trade "is the market actually open right now?" check.
 - [ ] Move Dhan token generation off startup-blocking — `generate_fresh_token()` runs at import time, so a failed TOTP call stops the server booting. Hit this repeatedly on 2026-08-14/15 (TOTP rate-limit on `--reload` restarts; clock-drift "Invalid TOTP"). Workaround: run `uvicorn main:app` without `--reload`. Needs lazy/scheduled refresh.
 - [ ] GIFT Nifty carry-premium is a static estimate (`GIFT_CARRY_PREMIUM_POINTS_DEFAULT = 75.0`) — v0.9/v3 docs want a real interest-rate-differential calc. Needs computed cost-of-carry or a backtested fixed value.
@@ -197,3 +254,32 @@ backend/
 **Not committed yet** — same reason: commit when tested against real end-to-end index data (backfill run).
 
 **Carried to next session:** run the index backfill (populates the 3 empty index tables, resolves GIFT verification), then harden `sync.py` with the Dhan-dates + calendar integrity check, then build the VIX percentile calc, then wire real VIX/OHLC into the Global Gate orchestrator (replacing mocks).
+
+---
+
+### 2026-08-15 (cont'd) — sync.py deployed, backfill run + verified, all 3 indices live
+
+**Goal:** deploy `sync.py`, run the one-time backfill, get all three index tables populated + integrity-verified against real data.
+
+**sync.py finalised with a two-entry-point design (Ash's requirement):**
+- `backfill_and_verify(index)` — run ONCE per index. Pulls ~365 days, then does a FULL calendar integrity check (stored dates == expected trading days). After it passes, that history is trusted and frozen — never re-checked.
+- `sync_daily(index)` — run EVERY trading day. Cheap max-date read, fetches only missing days, verifies ONLY the newly-added days. Never re-scans backfilled history. Refuses to run on an empty table (fail-loud: "run backfill first"). "Nothing newer to fetch" (weekend/holiday) = success, not failure.
+- Plus `backfill_and_verify_all()` / `sync_daily_all()` with per-index isolation (one index failing doesn't abort the others).
+
+**Two supporting helpers added:** `nse_calendar.get_expected_trading_days(from,to)` (the integrity oracle — weekdays minus trading_holidays/weekends; clearing holidays count as trading) and `index_store.get_stored_dates(index,from,to)`. Integrity check = `expected − stored = missing`.
+
+**First backfill surfaced a real subtlety (good catch by the integrity check):** VIX/Nifty came back with 5 "missing" dates, GIFT with 1 — all 2025 weekdays (Gandhi Jayanti, Christmas, festival days). Root cause: the ~365-day backfill reaches into **2025**, but the calendar only holds **2026** (NSE's `holiday-master` API only serves the current year — confirmed: historical years aren't available from that endpoint). So the check flagged real 2025 holidays as "missing data" — the *data was correct*, the *calendar coverage* was incomplete for that range.
+
+**Also learned — GIFT trades on a DIFFERENT calendar.** GIFT Nifty (NSE IX / IFSC / GIFT City) follows a more international schedule, so it trades through domestic Indian festival holidays. That's why GIFT has MORE bars (274 vs VIX/Nifty's 246) and fewer "missing" days — it's genuinely open when domestic NSE is closed. Consequence: GIFT can't be cleanly validated against the *domestic* NSE calendar; noted for later (may need its own IFSC calendar or a stored==Dhan-returned check).
+
+**Fix chosen (no new dependency):** clamp the integrity check to the calendar's coverage floor. Added `nse_calendar.get_calendar_coverage_start()` (min trade_date in calendar); `sync._integrity_check` now only validates dates >= that floor. 2025 data is still stored and used (the percentile just needs closes), it's simply not calendar-verified for a year the calendar doesn't cover. A range entirely below the floor returns clean (nothing checkable). Rejected: sourcing 2025 from a third-party API (adds a dependency) or hardcoding a 2025 list (real work purely to validate already-correct data).
+
+**Re-ran backfill — all three clean:** VIX `ok:true integrity_ok:true` 246 rows; Nifty same 246; GIFT `ok:true integrity_ok:true` 274 rows; zero missing dates across the board. Idempotency confirmed (re-run re-upserted without duplicating). **GIFT's long-standing "unverified" flag is now RESOLVED** — Dhan genuinely serves GIFT daily data.
+
+**Why this problem won't recur:** the backfill-into-an-uncovered-year issue is a one-time initial-setup artifact. `sync_daily` never reaches backward (only adds today's bar, always in a covered year). Year-rollover is fail-safe via the coverage-floor clamp: if the annual calendar refresh is late, next-year dates are stored/used but just not calendar-verified until the calendar catches up — never broken.
+
+**Scheduling deferred to deploy time** (logged in Open Items): Render Cron preferred (one mechanism for daily sync + yearly calendar refresh + funnel) vs a frontend manual button. Key principle: the functions run correctly regardless of trigger, so the trigger choice is low-stakes and later. Can't schedule until deployed (localhost can't be cron-triggered).
+
+**State now:** entire market_data foundation live + verified end-to-end — 3 indices backfilled with ~1yr of IST-correct data, integrity-checked, in Supabase. THIS is a real commit point (working, tested, real data — not mocks).
+
+**Carried to next session:** VIX percentile calc (reads the stored closes), then wire real VIX/OHLC into the Global Gate orchestrator (replacing the hardcoded mocks in `/funnel/global-gate/run`).

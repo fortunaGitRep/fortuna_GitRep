@@ -144,6 +144,24 @@ def get_row_count(index_key: str) -> int:
     return resp.count or 0
 
 
+def get_stored_dates(index_key: str, from_date: date, to_date: date) -> set[date]:
+    """
+    All trade_dates stored for this index within [from_date, to_date].
+    Used by sync's integrity check to compare against expected trading days.
+    Bounded by the date range, not an unbounded scan.
+    """
+    cfg = _config(index_key)
+    supabase = get_supabase()
+    resp = (
+        supabase.table(cfg.table_name)
+        .select("trade_date")
+        .gte("trade_date", from_date.isoformat())
+        .lte("trade_date", to_date.isoformat())
+        .execute()
+    )
+    return {date.fromisoformat(r["trade_date"]) for r in (resp.data or [])}
+
+
 def get_recent_closes(index_key: str, window: int) -> list[float]:
     """
     Last `window` closes, oldest-first. This is the bounded read the VIX

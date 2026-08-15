@@ -29,6 +29,13 @@ from dhan_client import dhan
 
 from modules.market_data.nse_calendar import ensure_calendar
 
+from modules.market_data.sync import backfill_and_verify_all
+
+@app.get("/market-data/backfill")
+async def market_data_backfill():
+    results = backfill_and_verify_all()
+    return {k: v.__dict__ for k, v in results.items()}
+
 @app.get("/market-data/nse-calendar/sync")
 async def nse_calendar_sync():
     return ensure_calendar().__dict__

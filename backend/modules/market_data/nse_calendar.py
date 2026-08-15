@@ -203,6 +203,60 @@ def _generate_weekends(year: int) -> tuple[int, bool]:
     return len(payloads), False
 
 
+def get_calendar_coverage_start() -> date | None:
+    """
+    Earliest date the calendar actually covers (min trade_date in the table).
+    Integrity checks must not validate dates BEFORE this -- the calendar can't
+    vouch for years it doesn't hold (e.g. NSE's API only serves the current
+    year, so 2025 holidays aren't loaded). Returns None if the calendar is
+    empty. Data before this date is still stored and used; it's just not
+    calendar-verified.
+    """
+    supabase = get_supabase()
+    resp = (
+        supabase.table(TABLE_NAME)
+        .select("trade_date")
+        .order("trade_date", desc=False)
+        .limit(1)
+        .execute()
+    )
+    if not resp.data:
+        return None
+    return date.fromisoformat(resp.data[0]["trade_date"])
+
+
+def get_expected_trading_days(from_date: date, to_date: date) -> set[date]:
+    """
+    Return the set of dates in [from_date, to_date] that SHOULD have index
+    data -- i.e. actual trading days. Used by sync.py's integrity check to
+    detect silent gaps in stored history.
+
+    A date is a trading day if it is a weekday AND not a trading_holiday /
+    weekend in the calendar. Clearing holidays COUNT as trading days (market
+    open, just no settlement). Any weekday not in the calendar at all is
+    assumed a trading day (calendar stores holidays + weekends; absence =
+    normal weekday = trading).
+    """
+    supabase = get_supabase()
+    resp = (
+        supabase.table(TABLE_NAME)
+        .select("trade_date, day_type")
+        .gte("trade_date", from_date.isoformat())
+        .lte("trade_date", to_date.isoformat())
+        .in_("day_type", ["trading_holiday", "weekend"])
+        .execute()
+    )
+    non_trading = {date.fromisoformat(r["trade_date"]) for r in (resp.data or [])}
+
+    trading_days: set[date] = set()
+    d = from_date
+    while d <= to_date:
+        if d.weekday() < 5 and d not in non_trading:  # Mon-Fri, not flagged closed
+            trading_days.add(d)
+        d += timedelta(days=1)
+    return trading_days
+
+
 def ensure_calendar(year: int | None = None, force_holidays: bool = False) -> CalendarSyncResult:
     """
     One entry point: ensure the calendar is populated for `year` (defaults to
