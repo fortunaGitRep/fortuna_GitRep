@@ -17,6 +17,7 @@ def generate_fresh_token():
         "https://auth.dhan.co/app/generateAccessToken",
         params={"dhanClientId": client_id, "pin": pin, "totp": totp_code},
     )
+    print(response.json())
     response.raise_for_status()
     return response.json()["accessToken"]
 
