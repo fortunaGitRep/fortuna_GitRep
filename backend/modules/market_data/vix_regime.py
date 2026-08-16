@@ -61,17 +61,13 @@ PCTL_LOW = 25.0
 RECENT_WARN_PCTL = 80.0
 RECENT_WARN_GAP = 10.0
 
-# Minimum priors required to produce a trustworthy percentile. Below this we
-# flag low confidence rather than emit a confident regime off thin history.
-MIN_PRIORS_FOR_CONFIDENCE = 40
-
 
 class VolRegime(str, Enum):
     LOW = "low"          # calm
     NORMAL = "normal"
     HIGH = "high"        # elevated
     EXTREME = "extreme"  # stress/panic
-    UNKNOWN = "unknown"  # insufficient history
+    NO_DATA = "no_data"  # VIX data unavailable (infra failure) -- NOT thin history
 
 
 @dataclass
@@ -116,7 +112,7 @@ def calculate_percentile(current_value: float, prior_values: list[float]) -> Opt
 
 def _regime_from_percentile(pctl_252: Optional[float]) -> VolRegime:
     if pctl_252 is None:
-        return VolRegime.UNKNOWN
+        return VolRegime.NO_DATA
     if pctl_252 >= PCTL_EXTREME:
         return VolRegime.EXTREME
     if pctl_252 >= PCTL_HIGH:
@@ -134,7 +130,7 @@ def _size_and_confidence(regime: VolRegime) -> tuple[str, float]:
         VolRegime.NORMAL:  ("normal", 1.0),
         VolRegime.HIGH:    ("50-75% of normal", 0.8),
         VolRegime.EXTREME: ("25-50% of normal", 0.5),
-        VolRegime.UNKNOWN: ("reduced (insufficient VIX history)", 0.8),
+        VolRegime.NO_DATA: ("no trade -- VIX data unavailable", 0.5),
     }[regime]
 
 
@@ -153,7 +149,7 @@ def evaluate_vix_decision() -> VixDecision:
     def _no_data(msg: str, size_msg: str) -> VixDecision:
         return VixDecision(
             latest_close_vix=None, percentile_252=None, percentile_63=None,
-            priors_252_used=0, priors_63_used=0, regime=VolRegime.UNKNOWN,
+            priors_252_used=0, priors_63_used=0, regime=VolRegime.NO_DATA,
             recent_volatility_stress=False, go_no_go="NO_GO",
             size_guidance=size_msg, confidence_mult=0.5, notes=[msg],
         )
@@ -185,16 +181,11 @@ def evaluate_vix_decision() -> VixDecision:
     pctl_252 = calculate_percentile(latest_close, priors_252)
     pctl_63 = calculate_percentile(latest_close, priors_63)
 
-    # Thin-history guard: below the minimum, a percentile off few priors is
-    # unreliable -- do NOT emit a confident regime. Set UNKNOWN.
-    if len(priors_252) < MIN_PRIORS_FOR_CONFIDENCE:
-        regime = VolRegime.UNKNOWN
-        notes.append(
-            f"Only {len(priors_252)} prior VIX observations "
-            f"(<{MIN_PRIORS_FOR_CONFIDENCE}); regime set to UNKNOWN until more history accumulates."
-        )
-    else:
-        regime = _regime_from_percentile(pctl_252)
+    # Regime straight from the 252-day percentile. (No thin-history special
+    # case: post-backfill there are always 240+ priors, and it only grows.
+    # If percentile is somehow None -- an infra/empty-data failure, not thin
+    # history -- _regime_from_percentile returns NO_DATA.)
+    regime = _regime_from_percentile(pctl_252)
 
     # recent_volatility_stress: the latest value ranks hot on the 63d window AND
     # well above its 252d rank. NOTE: this is CROSS-SECTIONAL (same value vs two
@@ -213,10 +204,10 @@ def evaluate_vix_decision() -> VixDecision:
 
     size_guidance, confidence_mult = _size_and_confidence(regime)
 
-    # GO/NO-GO: EXTREME or UNKNOWN -> PRE-1 votes caution/NO-GO. LOW/NORMAL/HIGH -> GO.
-    if regime in (VolRegime.EXTREME, VolRegime.UNKNOWN):
+    # GO/NO-GO: EXTREME or NO_DATA -> PRE-1 votes NO-GO. LOW/NORMAL/HIGH -> GO.
+    if regime in (VolRegime.EXTREME, VolRegime.NO_DATA):
         go_no_go = "NO_GO"
-        reason = "Extreme volatility" if regime == VolRegime.EXTREME else "Regime unknown (thin history)"
+        reason = "Extreme volatility" if regime == VolRegime.EXTREME else "VIX data unavailable"
         notes.append(f"{reason}: PRE-1 votes NO-GO / minimal size.")
     else:
         go_no_go = "GO"

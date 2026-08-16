@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-08-15 (VIX percentile + PRE-1 decision verdict)
+**Last updated:** 2026-08-16 (orchestrator wired to real data — first full Stage 1-4 verdict)
 
 ---
 
@@ -64,7 +64,9 @@ Thumbs.db
 
 ---
 
-## Open items (current) — as of 2026-08-15
+## Open items (current) — as of 2026-08-16
+
+**Folder-structure convention (decided 2026-08-15):** `db/` and `modules/market_data/` are **shared foundation layers** common to both Fortuna Index (the funnel) and the future Fortuna Cash scanner — NOT owned by any single feature. `market_data/` currently sits inside `modules/` for historical reasons; the more expressive placement would be top-level beside `db/` (features in `modules/`, shared layers at top level), but moving it was deferred — the cost is the same now or when Cash arrives, so no churn right after committing. **Going forward:** create new logical folders per the shared-vs-feature distinction — shared infrastructure (used by both Index and Cash) as top-level/peer layers, actual product features under `modules/`. Do NOT nest shared layers inside one consuming feature (would force the other consumer to reach into its internals).
 
 - [ ] Fix leftover default styling/behavior as five-tab shell gets built (Vite starter `App.css` still present, unused, not deleted)
 - [ ] Move from placeholder `/` page to the real five-tab shell (Inbox, Buy, Exit, Positions, Watchlist), using the six existing HTML mockups as the visual reference (`fortuna_cash_inbox_correct_teal.html`, `fortuna_cash_buy_tab_correct_teal.html`, `fortuna_cash_exit_correct_teal.html`, `fortuna_cash_watchlist_correct_teal.html`, `fortuna_cash_watchlist_labeled_stages.html`, `fortuna_cash_glossary_corner_icon.html`)
@@ -82,7 +84,10 @@ Thumbs.db
 - [x] ~~VIX percentile calc~~ — **done 2026-08-15.** Built as `vix_regime.py` (252+63 day percentile, regime bands, PRE-1 decision verdict), unit-tested, live result verified (VIX 11.31 → LOW regime).
 - [x] ~~Run the index backfill~~ — **done 2026-08-15.** All 3 indices backfilled + integrity-verified (VIX/Nifty 246 rows, GIFT 274). GIFT-Nifty verification RESOLVED — Dhan genuinely serves security_id 5024.
 - [ ] **Verify `sync_daily` on the first live trading day** — after Tue 2026-08-18 (Mon 17th is a normal trading day; Sat 15th = Independence Day holiday). Run `sync_daily_all()`, confirm it detects the gap since 2026-08-14, fetches only the new trading day(s), and verifies them clean (no duplicates, integrity_ok). First real test of the incremental path.
-- [ ] **Wire real Dhan VIX/OHLC into the orchestrator** — `Module_F_Global_Gate_Funnel`'s `/funnel/global-gate/run` still uses hardcoded mock VIX/OHLC. Now unblocked (backfill + percentile done): wire `evaluate_vix_decision()` into PRE-1, and real Nifty OHLC into PRE-2/PRE-4.
+- [x] ~~Wire real Dhan VIX/OHLC into the orchestrator~~ — **done 2026-08-16.** Full data-source cleanup: orchestrator pulls VIX/Nifty/GIFT from the store, AI keeps only FII-DII/macro/news/judgment. Pre-market awareness added (PRE-3/PRE-4-location report pending). First full real Stage 1-4 verdict produced. Also fixed the AI-gateway JSON-extraction bug (prose-wrapped fenced JSON).
+- [ ] **Frontend — Global Gate display** — build UI to show each module's individual verdict (MAC/NAT/FLO/PRE-1..5) and then the rolled-up final decision + direction verdict. Consumes `/funnel/global-gate/run`. Next session's main build.
+- [ ] **Test document + Excel test cases** — create a testing doc: research/write how testing is done (unit/integration/e2e, what a good test case is), how to run Fortuna's tests, and an Excel sheet of test cases (input values → expected output → actual output) for the funnel modules and market_data. Formalises verification beyond the current ad-hoc route-hitting.
+- [ ] **Dhan connection fails on first server start** — `generate_fresh_token()` frequently fails on the FIRST `uvicorn` start (seen repeatedly: `KeyError: 'accessToken'` / `Invalid TOTP`), then succeeds on the second start. Likely TOTP timing/clock or a token-rate quirk. Related to the startup-blocking item below but distinct — the *first-attempt* failure pattern needs its own diagnosis (retry-with-fresh-TOTP, or a brief wait+retry inside `generate_fresh_token`).
 - [ ] **Weekend/holiday integrity check for index data** — the calendar (`fortuna_nse_calendar`) now exists; use it to verify the index tables have every expected trading day (no silent gaps). Closes the autonomous-trading "no loopholes" concern.
 - [ ] **Scheduling / trigger mechanism (deferred to deploy time)** — decoupled from the functions themselves (backfill/sync/calendar all run correctly regardless of trigger). Options to decide later: **Render Cron Jobs** (preferred — managed, survives restarts, one mechanism for daily market-data sync + yearly calendar refresh + eventually the funnel run) vs a **frontend button** for manual runs (e.g. a "refresh calendar" button pushed each January). Can't schedule until the backend is deployed to Render (localhost can't be cron-triggered) — so this is a go-live task. For now everything is manual via routes.
 - [ ] **Annual calendar refresh** — `ensure_calendar()` must run once a year (late Dec/early Jan) to load the next year's NSE holidays before the daily sync starts adding that year's dates. Handled by whatever trigger mechanism above. The integrity-check coverage-floor clamp (added 2026-08-15) makes a late refresh fail-safe rather than broken — pre-calendar dates are stored/used but not calendar-verified.
@@ -316,3 +321,33 @@ backend/
 **Live result on real data (246 backfilled VIX closes):** VIX 11.31 → 252-pctl 24.5 → regime LOW → GO, normal size, confidence 1.2, direction_weight 0. `priors_252_used: 245` (just under full window, handled gracefully). First fully-real, tested, fact-checked funnel component producing a live decision.
 
 **Carried to next session:** wire `evaluate_vix_decision()` into PRE-1 inside the Global Gate orchestrator (replacing the mock VIX percentile), then wire real Nifty OHLC for CPR/gap (replacing the other mocks). Then Stage 5 build (incl. `vix_direction`).
+
+---
+
+### 2026-08-16 — Orchestrator wired to real data: first full Stage 1-4 verdict, no mocks
+
+**Goal:** wire everything built (VIX regime, index store, calendar) into the Global Gate orchestrator, replacing all hardcoded mock VIX/OHLC, so `/funnel/global-gate/run` produces a Stage 1-4 verdict on fully real data.
+
+**Design decisions settled first (before code):**
+- **Dropped the `unknown`/thin-history regime** in `vix_regime.py` — it existed only for <40 days of VIX history, which can't recur post-backfill (246 days stored, only grows). Renamed `UNKNOWN` → `NO_DATA`, now meaning ONLY genuine infra failure (empty/invalid store read), not thin history.
+- **`vix_regime` is the single source of VIX-decision truth; `PRE_1` became a thin adapter** — takes a `VixDecision`, maps it to `ModuleOutput` (regime→signal, confidence passes through, direction_weight=0). Removed the duplicated 25/75/90 thresholds that previously lived in BOTH `vix_regime` and `PRE_1` (a real drift-bug waiting to happen). PRE_1 stays pure; the orchestrator does the DB read.
+- **`vix_direction` remains future Stage-5 work** — this file is VIX-for-decision only. Confirmed the "VIX in both modules" v1.0 design: decision here, direction (confirmation-only, alongside price) in Stage 5.
+- **NO restructure** — considered moving `market_data` up beside `db/` or into the Foundation module; decided the architecture is sound and a full restructure would be over-engineering. `market_data` stays in `modules/` (folder-convention note already logged).
+
+**Full data-source cleanup (the "we have live data now" change):**
+- Orchestrator now pulls **VIX** (via `evaluate_vix_decision()`), **Nifty prev-day OHLC**, and **GIFT level** all from the **store** (`get_latest_bar()`), not from injected params or the AI.
+- **AI gateway no longer fetches GIFT** — removed from its prompt + JSON schema. It now does only what genuinely needs it: FII/DII, US/Asia close, macro levels, news + judgment (shock/surprise/overhang). `gift_nifty` made optional/deprecated in `schemas.py`.
+- Added `index_store.get_latest_bar(index_key)` — returns the latest full OHLC bar (handles VIX's close-only table too). Needed because CPR/gap need OHLC, not just closes.
+
+**Pre-market awareness (Ash's principle: "say not-available-yet, don't fake it"):**
+- Today's Nifty OPEN doesn't exist at a pre-market (~08:45 IST) run. Gates needing it now report a pending state instead of a fake verdict, and the rollup uses only available verdicts.
+- Mapping (all five PRE gates explained/confirmed): PRE-1 (VIX regime) available ✓; PRE-2 (GIFT overnight gap) available ✓ (GIFT trades overnight); PRE-3 (gap behaviour) → `not_available_yet:pre_market` (needs today's open) ✗; PRE-4 → width available ✓, location → `location_pending` ✗; PRE-5 (calendar) available ✓.
+- `nifty_today_open` is now an OPTIONAL param (None = pre-market). Pass `?nifty_today_open=<price>` after 9:15 to fill in PRE-3 + PRE-4 location. `run_stage1_to_4()` signature simplified — no more mock VIX/OHLC objects.
+
+**Bug found + fixed live — AI gateway JSON extraction.** First real end-to-end run 500'd on `json.decoder.JSONDecodeError: Expecting value: line 1 column 1`. Added debug logging → root cause: Claude (with web_search) returns **reasoning prose + a ```json fenced block** (2070 chars of valid data), but `_extract_json_block` only stripped fences when the string STARTED with ```. Prose-before-fence broke it. Fixed: robustly find the JSON — regex for a ```json fenced block anywhere, else first-`{`-to-last-`}`, else fail loud with a preview (not a bare JSONDecodeError). Verified against the real response. Debug prints reduced to a quiet `logger.debug`.
+
+**MILESTONE — first complete real Stage 1-4 verdict (2026-08-16 run):** All 11 modules ran on real data. PRE-1 `calm`/conf 1.2 (real VIX 11.31 @ 24th pctl), PRE-2 `small_gap_noise` (real stored GIFT), PRE-4 `narrow_trend_possible | location_pending` (real Nifty CPR width), PRE-3 `not_available_yet` + PRE-4 location pending (pre-market, correct). Real FII/DII (+508.1/+356.4), US close down, crude 88.52, gold 4376. `gift_nifty: null` in extraction (AI-drops-GIFT confirmed). Judgment correctly flagged Strait-of-Hormuz as `live_overhang` not fresh shock → `trap_risk: moderate`. Note: PRE-5 = `non_trading_day` (Sat Aug 16 = Independence Day weekend) correctly zeroed the confidence product — right behaviour, won't zero on a real trading day.
+
+**Files changed:** `vix_regime.py`, `test_vix_regime.py`, `index_store.py`, `deterministic_modules.py` (PRE_1/PRE_3/PRE_4), `orchestrator.py` (rewritten), `ai_gateway.py` (GIFT removed + JSON fix), `schemas.py` (gift optional), `main.py` (cleaned imports, route simplified, added `/market-data/sync-daily`).
+
+**Carried to next session:** frontend to display Global Gate individual verdicts + final verdict; test document + Excel test cases (how-to-test + input/expected/actual); then Stage 5 direction engine. `sync_daily` live test still pending Monday EOD.

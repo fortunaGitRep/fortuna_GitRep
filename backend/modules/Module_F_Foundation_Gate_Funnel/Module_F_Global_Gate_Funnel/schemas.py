@@ -72,13 +72,16 @@ class MacroLevels(BaseModel):
 
 
 class Stage1To4Extraction(BaseModel):
-    """Raw data Claude fetched via web_search for today's pre-market snapshot."""
+    """Raw data Claude fetched via web_search for today's pre-market snapshot.
+    NOTE: gift_nifty is DEPRECATED here — GIFT is now sourced from the Dhan
+    store (index_store.get_latest_bar), not the AI. Kept optional for
+    backward-compat; the orchestrator ignores it."""
     run_date: date
     us_close: USCloseData
     asia_status: AsiaStatus
-    gift_nifty: GiftNiftyData
     fii_dii: FiiDiiData
     macro_levels: MacroLevels
+    gift_nifty: Optional[GiftNiftyData] = None  # deprecated, store-sourced now
     extraction_confidence_note: Optional[str] = None
     sources: list[str] = Field(default_factory=list)
 

@@ -25,7 +25,9 @@ Requires: F_ANTHROPIC_API_KEY in environment.
 
 from __future__ import annotations
 import json
+import logging
 import os
+import re
 from datetime import date, datetime, timezone, timedelta
 
 from anthropic import Anthropic
@@ -41,16 +43,19 @@ MODEL = "claude-sonnet-4-5"
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+logger = logging.getLogger(__name__)
+
 SYSTEM_PROMPT = """You are a data-extraction and classification assistant for a \
 pre-market trading pipeline (Fortuna, NSE Nifty 50 cash/options). You do NOT \
 give trading advice, predictions, or recommendations. You do two things only:
 
-1. EXTRACT current pre-market data points using web search: GIFT Nifty \
-   (NSE IFSC / NSE IX, formerly SGX Nifty) current level and as-of time, \
+1. EXTRACT current pre-market data points using web search: \
    yesterday's US market close (Dow/S&P/Nasdaq % change), today's Asian \
    market session status/direction, yesterday's FII and DII net cash \
    flows in crores (from NSE provisional data or NSDL), and current \
-   DXY/US10Y yield/Brent crude/gold levels if readily available.
+   DXY/US10Y yield/Brent crude/gold levels if readily available. \
+   (Do NOT fetch GIFT Nifty or India VIX — those come from the broker \
+   data feed, not you.)
 
    Every field you cannot verify from a real source must be null. Do not \
    estimate, infer, or fill gaps with plausible-sounding numbers. Include \
@@ -85,7 +90,6 @@ Return exactly this JSON shape (use null for anything unverified):
     "run_date": "YYYY-MM-DD",
     "us_close": {"dow_pct": float|null, "sp500_pct": float|null, "nasdaq_pct": float|null, "direction": "up"|"down"|"flat"|"unknown"},
     "asia_status": {"direction": "up"|"down"|"flat"|"unknown", "notes": string|null},
-    "gift_nifty": {"raw_level": float|null, "as_of_ist": string|null, "notes": string|null},
     "fii_dii": {"as_of_date": string|null, "fii_net_cr": float|null, "dii_net_cr": float|null, "source_note": string|null},
     "macro_levels": {"dxy": float|null, "us10y": float|null, "crude_brent": float|null, "gold": float|null},
     "extraction_confidence_note": string|null,
@@ -107,13 +111,46 @@ Return exactly this JSON shape (use null for anything unverified):
 
 
 def _extract_json_block(text: str) -> dict:
-    """Claude is instructed to return raw JSON, but strip fences defensively."""
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("```")[1]
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-    return json.loads(cleaned.strip())
+    """
+    Extract the JSON object from Claude's response. Claude is instructed to
+    return raw JSON, but in practice (especially with web_search) it often
+    prepends reasoning prose and/or wraps the JSON in a ```json fenced block.
+    This handles all three cases:
+      1. a ```json ... ``` (or ``` ... ```) fenced block anywhere in the text
+      2. a bare JSON object embedded after prose (first '{' to matching last '}')
+      3. clean JSON (no wrapping)
+    Fails loud with a clear error (including a preview) if no JSON is found,
+    rather than a bare JSONDecodeError.
+    """
+    if not text or not text.strip():
+        raise ValueError("AI gateway returned an empty response; no JSON to parse.")
+
+    candidate = None
+
+    # Case 1: a fenced code block anywhere in the text.
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence_match:
+        candidate = fence_match.group(1)
+    else:
+        # Case 2/3: take the first '{' through the matching last '}'.
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = text[start:end + 1]
+
+    if candidate is None:
+        preview = text[:300]
+        raise ValueError(
+            f"AI gateway response contained no JSON object. Response preview: {preview!r}"
+        )
+
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        preview = candidate[:300]
+        raise ValueError(
+            f"AI gateway response JSON failed to parse: {exc}. Candidate preview: {preview!r}"
+        ) from exc
 
 
 def fetch_stage1to4_snapshot(run_date: date | None = None) -> AIGatewayResponse:
@@ -143,6 +180,14 @@ def fetch_stage1to4_snapshot(run_date: date | None = None) -> AIGatewayResponse:
     # Concatenate all text blocks (web_search responses interleave tool_use blocks)
     text_parts = [block.text for block in response.content if getattr(block, "type", None) == "text"]
     full_text = "\n".join(text_parts)
+
+    # Diagnostic (silent unless debug logging enabled): block types + text length.
+    # Claude often returns reasoning prose + a ```json fenced block rather than
+    # clean JSON; _extract_json_block handles that.
+    logger.debug(
+        "ai_gateway response: stop_reason=%s, blocks=%d, text_len=%d",
+        getattr(response, "stop_reason", "n/a"), len(response.content), len(full_text),
+    )
 
     parsed = _extract_json_block(full_text)
 

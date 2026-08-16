@@ -183,6 +183,37 @@ def get_recent_closes(index_key: str, window: int) -> list[float]:
     return closes
 
 
+def get_latest_bar(index_key: str) -> Optional[DailyBar]:
+    """
+    Most recent stored bar for an index, as a DailyBar. For Nifty/GIFT this
+    carries full OHLC (needed for CPR + gap); for VIX only close is populated
+    (its table has no OHLC columns). Returns None if the table is empty.
+
+    Reads only this table's actual columns (from TABLE_CONFIG) so it works for
+    the close-only VIX table and the full-OHLC Nifty/GIFT tables alike.
+    """
+    cfg = _config(index_key)
+    supabase = get_supabase()
+    columns = "trade_date, " + ", ".join(cfg.price_columns)
+    resp = (
+        supabase.table(cfg.table_name)
+        .select(columns)
+        .order("trade_date", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not resp.data:
+        return None
+    row = resp.data[0]
+    return DailyBar(
+        trade_date=date.fromisoformat(row["trade_date"]),
+        close=float(row["close"]),
+        open=float(row["open"]) if "open" in row and row["open"] is not None else None,
+        high=float(row["high"]) if "high" in row and row["high"] is not None else None,
+        low=float(row["low"]) if "low" in row and row["low"] is not None else None,
+    )
+
+
 # --- Connection smoke test -------------------------------------------------
 
 def connection_smoke_test() -> dict:

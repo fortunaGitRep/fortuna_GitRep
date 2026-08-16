@@ -118,6 +118,22 @@ India VIX at 11 vs 14 vs 20 tells you almost nothing on its own — because "hig
 
 ---
 
+## 13. Robust parsing of LLM output (never trust structured data from a model)
+
+**Fundamentals:**
+When you ask a language model to return structured data (JSON, XML, CSV), you cannot assume it will return *only* that structure — even when explicitly instructed to. Models add explanatory preamble ("Based on my research, here's the JSON:"), wrap output in markdown code fences (```json ... ```), emit reasoning before the answer, or (with tools like web search) interleave tool-call blocks with text blocks. A parser that assumes clean output is a latent bug: it works in testing when the model happens to comply, then breaks in production when the model adds one sentence of preamble. The defensive pattern is **extract, don't assume**: search the response for the structured payload (find the fenced block anywhere, or the first `{` to the last `}`), parse *that*, and fail loud with a readable error (plus a preview of what came back) rather than a cryptic low-level decode error.
+
+**Why Fortuna needed it:**
+The AI gateway asks Claude (with web search) for a pre-market JSON snapshot. The first real end-to-end run crashed with `JSONDecodeError: Expecting value: line 1 column 1` — which looks like "empty response," but debug logging revealed the opposite: a 2070-character response containing *valid* JSON, just wrapped in reasoning prose plus a ```json fence. The original extractor only stripped fences when the string *started* with ```` ``` ````, so prose-before-fence defeated it. The fix: regex-find a fenced block anywhere, else fall back to first-`{`-to-last-`}`, else raise a clear error with a preview. For an autonomous system this matters doubly — a model's output format can drift run to run, so the parser must be resilient to formatting it didn't produce during testing.
+
+**What I rejected, and why:**
+- *Assuming the model returns clean JSON because the prompt said so:* Prompts influence but don't guarantee format. The web-search tool in particular makes Claude "think out loud" before answering. Trusting the instruction is how the bug shipped.
+- *Only handling fences at the start of the string:* Half a solution — it works until the model adds a preamble sentence, which it will.
+- *Silently swallowing a parse failure (returning None/empty):* For a trade-gating pipeline, a malformed AI response must fail loudly and visibly (with a preview to diagnose), not degrade into a silent empty verdict. Fail-loud beats fail-silent when money's involved.
+- *Debug via `print` left in place:* Fine for diagnosis, noise in production — converted to `logger.debug` once the root cause was found (available when needed, silent otherwise).
+
+---
+
 # Database
 
 ## 3. Row Level Security (RLS) on Supabase tables
@@ -154,7 +170,7 @@ Whether Supabase Postgres is used to store bulk historical market data, or only 
 
 ---
 
-## 12. Source of truth, and using the authoritative source for integrity checks
+## 14. Source of truth, and using the authoritative source for integrity checks
 
 **Fundamentals:**
 When the same fact is available from multiple places, the **source of truth** is the one authoritative origin you treat as correct when they disagree — everything else is a copy that can be stale or wrong. A recurring engineering mistake is validating data against a *derived* or *republished* copy instead of the origin. Two related ideas: an **idempotency/integrity check** verifies stored data actually matches what it should be (not just "did the write return success", but "is the data really all there and correct"); and **data provenance** — knowing *where* each piece of data came from — is what lets you trust it. For any autonomous system, "the write said OK" is not the same as "the data is correct and complete" — those must be checked separately.

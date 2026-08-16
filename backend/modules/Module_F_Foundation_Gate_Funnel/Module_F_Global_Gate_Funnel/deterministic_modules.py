@@ -186,18 +186,38 @@ def FLO_2(retail_vs_fii_divergence: bool, flo1_signal: str) -> ModuleOutput:
 # Stage 4 · Pre-market Gates
 # ---------------------------------------------------------------------------
 
-def PRE_1(vix_percentile: float) -> ModuleOutput:
-    if vix_percentile < VIX_LOW_PCTL:
-        return ModuleOutput(module_id="PRE-1", signal="calm",
-                             direction_weight=0.0, context_weight=0.8, confidence_mult=1.2)
-    if vix_percentile < VIX_HIGH_PCTL:
-        return ModuleOutput(module_id="PRE-1", signal="normal",
-                             direction_weight=0.0, context_weight=0.8, confidence_mult=1.0)
-    if vix_percentile < VIX_TURBULENT_PCTL:
-        return ModuleOutput(module_id="PRE-1", signal="elevated",
-                             direction_weight=0.0, context_weight=0.9, confidence_mult=0.8)
-    return ModuleOutput(module_id="PRE-1", signal="turbulent",
-                         direction_weight=0.0, context_weight=1.0, confidence_mult=0.5)
+def PRE_1(vix_decision) -> ModuleOutput:
+    """
+    Thin adapter: maps a VixDecision (from market_data.vix_regime) into the
+    funnel's ModuleOutput. VIX is a DECISION/regime gate here -- direction_weight
+    is structurally 0 (v0.9/v3). This does NOT recompute any VIX math or
+    thresholds; vix_regime is the single source of VIX truth. Kept pure (takes
+    the decision object in, returns output) -- the orchestrator does the DB read.
+
+    Regime -> context_weight/confidence mapping preserves the original v0.9
+    PRE-1 behaviour (calm 1.2 / normal 1.0 / high 0.8 / extreme 0.5), now driven
+    by vix_regime's regime label instead of a duplicated percentile bucket.
+    """
+    regime = vix_decision.regime.value  # "low"|"normal"|"high"|"extreme"|"no_data"
+
+    # context_weight rises as vol rises (regime matters more when turbulent);
+    # confidence_mult comes straight from vix_regime (already the v0.9 values).
+    context_by_regime = {
+        "low": 0.8, "normal": 0.8, "high": 0.9, "extreme": 1.0, "no_data": 1.0,
+    }
+    signal_by_regime = {
+        "low": "calm", "normal": "normal", "high": "elevated",
+        "extreme": "turbulent", "no_data": "no_data",
+    }
+
+    return ModuleOutput(
+        module_id="PRE-1",
+        signal=signal_by_regime.get(regime, "normal"),
+        direction_weight=0.0,  # structural
+        context_weight=context_by_regime.get(regime, 0.8),
+        confidence_mult=vix_decision.confidence_mult,
+        notes=(vix_decision.notes[0] if vix_decision.notes else None),
+    )
 
 
 def compute_basis_adjusted_gap_pct(
@@ -236,7 +256,7 @@ def PRE_2(gift_gap_pct: float, time_of_day_ist: time, is_domestic_event: bool) -
 
 
 def PRE_3(
-    actual_gap_pct: float,
+    actual_gap_pct: Optional[float],
     atr_normalized_gap: Optional[float],
     trend_alignment: Optional[str],  # "bull" | "bear" | None — Stage-5 input, may be unavailable
     vix_signal: str,
@@ -245,12 +265,19 @@ def PRE_3(
 ) -> ModuleOutput:
     """
     Gap Up/Down Behaviour classifier.
+    PRE-MARKET: actual_gap_pct is None until the market opens (needs today's
+    real open). In that case this returns a "not_available_yet" output with
+    zero weights so it contributes nothing to the rollup rather than faking a
+    verdict. Re-run after the open to get a real classification.
     NOTE: atr_normalized_gap / trend_alignment are Stage-5 (ENG) derived. If
     Module_F_Tech_Indicators_Funnel hasn't run yet, pass None — this
     function degrades gracefully to "uncertain" rather than guessing.
-    A live macro overhang (per v0.9/v3) excludes a Runaway classification
-    even absent a scheduled news event.
     """
+    if actual_gap_pct is None:
+        return ModuleOutput(module_id="PRE-3", signal="not_available_yet:pre_market",
+                             direction_weight=0.0, context_weight=0.0, confidence_mult=1.0,
+                             notes="Today's open not available pre-market; PRE-3 pending until 9:15.")
+
     def _aligned_runaway() -> bool:
         if atr_normalized_gap is None or trend_alignment is None:
             return False
@@ -294,17 +321,32 @@ def compute_cpr(prev_high: float, prev_low: float, prev_close: float) -> dict:
 
 def PRE_4(
     cpr_width_points: float,
-    price_vs_cpr: str,  # "above_TC" | "below_BC" | "inside"
+    price_vs_cpr: Optional[str],  # "above_TC" | "below_BC" | "inside" | None (pre-market)
     ema_bias: Optional[str],
     rsi_bias: Optional[str],
     vwap_bias: Optional[str],
 ) -> ModuleOutput:
+    """
+    CPR gate. WIDTH is always available pre-market (from prior-day OHLC).
+    LOCATION (price vs CPR) needs today's price — pre-market it's None, so the
+    location half reports 'location_pending' with zero direction weight while
+    the width context still contributes.
+    """
     if cpr_width_points < CPR_NARROW_THRESHOLD_PTS:
         width_signal, width_ctx = "narrow_trend_possible", 0.7
     elif cpr_width_points > CPR_WIDE_THRESHOLD_PTS:
         width_signal, width_ctx = "wide_range_day", 0.7
     else:
         width_signal, width_ctx = "normal", 0.5
+
+    if price_vs_cpr is None:
+        # Pre-market: width known, location pending until the open.
+        return ModuleOutput(
+            module_id="PRE-4", signal=f"{width_signal} | location_pending",
+            direction_weight=0.0, context_weight=width_ctx, confidence_mult=1.0,
+            bias=Direction.UNKNOWN,
+            notes="Price-vs-CPR location not available pre-market; width context only.",
+        )
 
     aligned_bull = ema_bias == rsi_bias == vwap_bias == "bull"
     aligned_bear = ema_bias == rsi_bias == vwap_bias == "bear"

@@ -2,8 +2,8 @@
 Fortuna backend — FastAPI entrypoint.
 
 This is the minimal starting point: a running server with a health check.
-Real endpoints (Inbox, Buy, Exit, Positions, Watchlist) get added under app/
-as they're built.
+Real endpoints (Inbox, Buy, Exit, Positions, Watchlist) get added under
+modules/ as they're built.
 """
 
 from fastapi import FastAPI
@@ -11,6 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dhan_client import dhan
 from modules.market_data.index_store import connection_smoke_test
+from modules.market_data.nse_calendar import ensure_calendar
+from modules.market_data.sync import backfill_and_verify_all, sync_daily_all
+from modules.market_data.vix_regime import evaluate_vix_decision
+from modules.Module_F_Foundation_Gate_Funnel.Module_F_Global_Gate_Funnel.orchestrator import (
+    run_stage1_to_4,
+)
 
 app = FastAPI(title="Fortuna API")
 
@@ -25,32 +31,7 @@ app.add_middleware(
 )
 
 
-from dhan_client import dhan
-
-from modules.market_data.nse_calendar import ensure_calendar
-
-from modules.market_data.sync import backfill_and_verify_all
-
-from modules.market_data.vix_regime import evaluate_vix_decision
-
-@app.get("/market-data/vix-regime")
-async def vix_regime_check():
-    return evaluate_vix_decision().__dict__
-
-@app.get("/market-data/backfill")
-async def market_data_backfill():
-    results = backfill_and_verify_all()
-    return {k: v.__dict__ for k, v in results.items()}
-
-@app.get("/market-data/nse-calendar/sync")
-async def nse_calendar_sync():
-    return ensure_calendar().__dict__
-
-
-@app.get("/market-data/index-store/smoke-test")
-async def index_store_smoke_test():
-    return connection_smoke_test()
-
+# --- Health / root ---------------------------------------------------------
 
 @app.get("/")
 def root():
@@ -65,24 +46,42 @@ def health():
 @app.get("/dhan/funds")
 def get_dhan_funds():
     return dhan.get_fund_limits()
-    
-# main.py — add alongside the existing /dhan/funds route
 
-from modules.Module_F_Foundation_Gate_Funnel.Module_F_Global_Gate_Funnel.orchestrator import run_stage1_to_4
-from modules.Module_F_Foundation_Gate_Funnel.Module_F_Global_Gate_Funnel.schemas import ViXSnapshot, NiftyOHLC
-from datetime import date
+
+# --- Market data -----------------------------------------------------------
+
+@app.get("/market-data/index-store/smoke-test")
+async def index_store_smoke_test():
+    return connection_smoke_test()
+
+
+@app.get("/market-data/nse-calendar/sync")
+async def nse_calendar_sync():
+    return ensure_calendar().__dict__
+
+
+@app.get("/market-data/backfill")
+async def market_data_backfill():
+    results = backfill_and_verify_all()
+    return {k: v.__dict__ for k, v in results.items()}
+
+
+@app.get("/market-data/sync-daily")
+async def market_data_sync_daily():
+    results = sync_daily_all()
+    return {k: v.__dict__ for k, v in results.items()}
+
+
+@app.get("/market-data/vix-regime")
+async def vix_regime_check():
+    return evaluate_vix_decision().__dict__
+
+
+# --- Foundation funnel -----------------------------------------------------
 
 @app.get("/funnel/global-gate/run")
-async def global_gate_smoke_test():
-    # Mocked inputs for now — real Dhan-sourced VIX/OHLC once the Data API subscription is active
-    vix = ViXSnapshot(level=13.4, percentile=42.0)
-    prev_day = NiftyOHLC(trade_date=date(2026, 8, 12), open=24500, high=24610, low=24430, close=24471.70, prev_close=24400)
-
-    result = run_stage1_to_4(
-        vix=vix,
-        nifty_prev_day=prev_day,
-        nifty_today_open=24445.0,
-        fii_dii_rolling_trend_strong=False,
-        retail_vs_fii_divergence=False,
-    )
-    return result.model_dump(mode="json")    
+async def global_gate_run(nifty_today_open: float | None = None):
+    # Pre-market: call with no open. After 9:15, pass ?nifty_today_open=<price>
+    # to fill in PRE-3 (gap behaviour) and PRE-4 location.
+    result = run_stage1_to_4(nifty_today_open=nifty_today_open)
+    return result.model_dump(mode="json")

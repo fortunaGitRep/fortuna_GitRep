@@ -37,30 +37,29 @@ def _patch_closes(monkeypatch_values):
     vr.get_recent_closes = lambda index_key, window: list(monkeypatch_values)  # type: ignore
 
 
-def test_empty_history_is_no_go_unknown():
+def test_empty_history_is_no_go_no_data():
     _patch_closes([])
     d = vr.evaluate_vix_decision()
-    assert d.regime == vr.VolRegime.UNKNOWN
+    assert d.regime == vr.VolRegime.NO_DATA
     assert d.go_no_go == "NO_GO"
     assert d.latest_close_vix is None
 
 
-def test_thin_history_forces_unknown_not_extreme():
-    # 10 priors + 1 latest that would be 100th pctl -> must be UNKNOWN, not EXTREME
-    _patch_closes([10.0] * 10 + [25.0])
+def test_small_history_still_classifies_regime():
+    # Thin-history special-casing was removed (can't recur post-backfill).
+    # Even a few priors now produce a real regime from the percentile.
+    _patch_closes([10.0] * 10 + [25.0])  # latest above all -> ~100th pctl
     d = vr.evaluate_vix_decision()
-    assert d.regime == vr.VolRegime.UNKNOWN, "thin history must not emit a confident regime"
-    assert d.go_no_go == "NO_GO"
+    assert d.regime == vr.VolRegime.EXTREME  # no longer forced to NO_DATA/UNKNOWN
+    assert d.go_no_go == "NO_GO"             # EXTREME still votes NO-GO
 
 
 def test_invalid_values_are_dropped():
-    # Enough valid priors to exceed MIN_PRIORS, plus junk that must be filtered.
     valid = [12.0] * 45
-    junk = [None, -5.0, float("nan"), 0.0]  # all invalid
-    _patch_closes(valid + junk[:0] + [13.0])  # keep it simple: valid history + latest
+    _patch_closes(valid + [13.0])
     d = vr.evaluate_vix_decision()
     assert d.latest_close_vix == 13.0
-    assert d.regime != vr.VolRegime.UNKNOWN  # enough valid priors now
+    assert d.regime != vr.VolRegime.NO_DATA  # valid data present
 
 
 def test_calm_regime_go_and_confidence():
