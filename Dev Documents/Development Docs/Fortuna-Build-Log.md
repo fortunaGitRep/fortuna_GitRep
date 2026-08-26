@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-08-16 (orchestrator wired to real data — first full Stage 1-4 verdict)
+**Last updated:** 2026-08-23 (Upstox data pipeline — instrument catalogue layer built & populated: 2,643 stocks + 139 indices live in Supabase)
 
 ---
 
@@ -85,7 +85,13 @@ Thumbs.db
 - [x] ~~Run the index backfill~~ — **done 2026-08-15.** All 3 indices backfilled + integrity-verified (VIX/Nifty 246 rows, GIFT 274). GIFT-Nifty verification RESOLVED — Dhan genuinely serves security_id 5024.
 - [ ] **Verify `sync_daily` on the first live trading day** — after Tue 2026-08-18 (Mon 17th is a normal trading day; Sat 15th = Independence Day holiday). Run `sync_daily_all()`, confirm it detects the gap since 2026-08-14, fetches only the new trading day(s), and verifies them clean (no duplicates, integrity_ok). First real test of the incremental path.
 - [x] ~~Wire real Dhan VIX/OHLC into the orchestrator~~ — **done 2026-08-16.** Full data-source cleanup: orchestrator pulls VIX/Nifty/GIFT from the store, AI keeps only FII-DII/macro/news/judgment. Pre-market awareness added (PRE-3/PRE-4-location report pending). First full real Stage 1-4 verdict produced. Also fixed the AI-gateway JSON-extraction bug (prose-wrapped fenced JSON).
-- [ ] **Frontend — Global Gate display** — build UI to show each module's individual verdict (MAC/NAT/FLO/PRE-1..5) and then the rolled-up final decision + direction verdict. Consumes `/funnel/global-gate/run`. Next session's main build.
+- [ ] **Frontend — Global Gate display** — build UI to show each module's individual verdict (MAC/NAT/FLO/PRE-1..5) and the rolled-up final decision + direction verdict. Consumes `/funnel/global-gate/run`. Stack: React + Vite + TypeScript (matches existing frontend). **STATUS (paused 2026-08-16, design phase — samples built, NOT yet wired to real .tsx):**
+  - ✅ **Main dashboard sample APPROVED** (`global_gate_ui_v2.jsx`) — dark instrument-panel aesthetic, all 11 gates grouped (Macro/National/Flows/Pre-market), verdict stat blocks (tradeable/direction/trap-risk/confidence×), pending/open banner, extraction + judgment panels. Authoritative gate labels pulled from the v0.9 spec sit under each acronym. Weights shown "Style B": each of Direction/Context/Confidence = label(left) — bar(middle) — word+number(right), inline. "Reading the weights" legend included. Responsive (cards minmax 260px, stack on mobile — fixes the earlier too-thin problem). Auto-load + manual refresh planned.
+  - ✅ **MAC-1 detail-page sample built** (`mac1_detail_samples.jsx`) — opens as a separate detail view on gate click (breadcrumb ← Global Gate / MAC-1, gate name + signal + weights header). **Decision: KEEP 3 SWITCHABLE TABS.** Tab 1 "Current data only" (judgment flags + overhang text + decision logic + sources — works today, no backend). Tab 2 "Full evidence trail" (per-news items tagged geopolitical/commodity/fed + rule trail — NEEDS BACKEND). Tab 3 "Hybrid" (live-now data + marked "needs backend" placeholders).
+  - ⏸ **ON HOLD — finalize the COMPLETE UI design first, then convert all to real wired .tsx together.** Readability review of the detail page flagged issues (see below).
+  - **Remaining to wire (after design finalised):** fetch `/funnel/global-gate/run` (auto-load on mount + refresh button); make gate cards clickable → route to detail page; build detail page as a reusable component for all 11 gates (not just MAC-1); match frontend file/routing conventions.
+- [ ] **Frontend readability redesign (detail page + dashboard)** — the MAC-1 detail page readability was judged weak. Researched data-dense financial-dashboard design best practices; concrete fixes to apply: (1) stronger visual hierarchy — priority data larger/bolder, secondary smaller/lighter (page is currently too flat); (2) fix "none0.0" spacing bug — word+number collide, need a space; (3) the three top weights are cramped, DIRECTION/CONTEXT/CONFIDENCE labels too tiny/faint; (4) reserve color strictly for meaning (state), not decoration — currently violet/cyan/amber used decoratively; (5) body/faint text contrast likely below 4.5:1 — raise it; (6) more vertical breathing room between sections. Density itself is correct (Ash is a Bloomberg-terminal-type user who wants every gate daily) — the fix is hierarchy + whitespace + contrast, not less data. Apply the same design language to both the dashboard and detail page before wiring.
+- [ ] **Backend — per-gate evidence trail** (for detail-page Tabs 2 & 3) — the funnel must attach, per gate, the individual news items that fed it (tagged geopolitical/fed/commodity, mapped shock-vs-overhang) and the rule-trail of checks each gate ran. Currently only the aggregated `judgment` + `extraction` exist; per-gate evidence is not captured. Until built, detail Tabs 2 & 3 render the honest "needs backend" placeholder state.
 - [ ] **Test document + Excel test cases** — create a testing doc: research/write how testing is done (unit/integration/e2e, what a good test case is), how to run Fortuna's tests, and an Excel sheet of test cases (input values → expected output → actual output) for the funnel modules and market_data. Formalises verification beyond the current ad-hoc route-hitting.
 - [ ] **Dhan connection fails on first server start** — `generate_fresh_token()` frequently fails on the FIRST `uvicorn` start (seen repeatedly: `KeyError: 'accessToken'` / `Invalid TOTP`), then succeeds on the second start. Likely TOTP timing/clock or a token-rate quirk. Related to the startup-blocking item below but distinct — the *first-attempt* failure pattern needs its own diagnosis (retry-with-fresh-TOTP, or a brief wait+retry inside `generate_fresh_token`).
 - [ ] **Weekend/holiday integrity check for index data** — the calendar (`fortuna_nse_calendar`) now exists; use it to verify the index tables have every expected trading day (no silent gaps). Closes the autonomous-trading "no loopholes" concern.
@@ -351,3 +357,91 @@ backend/
 **Files changed:** `vix_regime.py`, `test_vix_regime.py`, `index_store.py`, `deterministic_modules.py` (PRE_1/PRE_3/PRE_4), `orchestrator.py` (rewritten), `ai_gateway.py` (GIFT removed + JSON fix), `schemas.py` (gift optional), `main.py` (cleaned imports, route simplified, added `/market-data/sync-daily`).
 
 **Carried to next session:** frontend to display Global Gate individual verdicts + final verdict; test document + Excel test cases (how-to-test + input/expected/actual); then Stage 5 direction engine. `sync_daily` live test still pending Monday EOD.
+
+---
+
+### 2026-08-23 — Upstox data pipeline: instrument catalogue layer (Step 1) built & populated
+
+**Context / strategic shift:** Decided to source **all market data FREE from Upstox** (Analytics Token) and keep **Dhan for execution only** — reverses the v0.4 spec's "Dhan Data API ₹499/mo" plan. Upstox's Analytics Token (1-yr, read-only, no static IP, free) confirmed to cover everything Fortuna needs: historical candles, quotes, option chain, **fundamentals**, market info, news. Only trading/account-state APIs need a static IP (irrelevant — Fortuna never trades via Upstox). Cost of the whole data layer drops to ₹0.
+
+**Bigger scope decision — cross-market regime thesis.** Fortuna's data breadth is now driven by a cross-market regime-rotation vision: scan ALL markets/submarkets (index, stocks, non-index-correlated stocks, options, sectors, themes, commodities, bonds), find where the trend/opportunity is, rotate there; learn regime patterns from history (e.g. flight-to-safety → gold/oil in a war) and apply forward over a multi-year horizon. Consequence: fetch EVERYTHING Upstox offers (full ~2,643-stock universe, all 139 indices, full fundamentals) — not a fixed Nifty 500 — because you can't discover rotations in markets you didn't capture. Honest ceiling logged: Upstox = Indian data only, daily back to ~2000 (intraday 2022); not global, not multi-century. Captured in new `fortuna_strategy_thesis.md`.
+
+**Three data domains defined:** (1) universe stocks (~2,643 EQ) — fundamentals + OHLCV; (2) all NSE indices (~139, minus Nifty 50) — OHLCV only; (3) Nifty 50 separate — OHLCV all timeframes + near-future options data for index-options trading.
+
+**Design decisions settled first (before code):**
+- **Auth = raw pre-authenticated `requests.Session`, NOT the official upstox-python-sdk.** The SDK is a heavyweight OpenAPI-generated client built around the OAuth/trading surface (~95% order-placement code this read-only token can't use); a plain Bearer header keeps the hand-rolled retry/backoff/throttle control the backfill needs and matches the "client owns auth, data modules import it" pattern (`dhan_client` ↔ `upstox_auth_client`). Verified an SDK exists but chose against it deliberately.
+- **Trading path deferred (Rule #16, added this session):** never let current broker cost/pricing decisions hardcode the architecture. `get_trading_client()` is a stub raising NotImplementedError with a pointer; `.env` gets commented placeholder trading vars. Broker choice may change after Fortuna is complete.
+- **Data-fetch build discipline = per-script Phase 1 / Phase 2.** Phase 1 = download+parse+filter+PRINT summary, NO DB write (verify the data is sane first). Phase 2 = add the DB write once verified. This caught a real bug (below).
+- **DB naming convention:** lowercase `f_` prefix (Postgres folds unquoted identifiers to lowercase; capital `F_` would force quoting in every query forever). Python files verb-explicit (`fetch_*`, `read_*`, `track_*`). Parquet filenames = instrument_key suffix (ISIN for stocks, slugified index name for indices). Audit timestamps in IST via a shared `now_ist()` SQL helper.
+- **Storage split (resolves the Learning-doc §6 open question):** reference/output data → Supabase Postgres (catalogues, fundamentals, watchlists, fetch-status); bulk historical OHLCV → Parquet in Supabase Storage. Broker-namespaced folders (`dhan/`, `upstox/`) for swappability.
+- **Soft-delete, never hard delete:** delisted/vanished instruments get `is_active=false` (skipped by fetchers) but keep their row + history — the regime-research thesis actively wants delisted names. Storage cost is negligible.
+
+**What got built + verified:**
+- `upstox_auth_client.py` — Analytics Token auth, `get_analytics_client()` (cached authed Session), stubbed `get_trading_client()`, `smoke_test()` (Market Status call), JWT-exp expiry warning. **Smoke test PASSED** (HTTP 200, status=success).
+- Migration `003_fortuna_universe_instruments.sql` → `f_universe_instruments` (stocks). Live.
+- Migration `004_fortuna_index_instruments.sql` → `f_all_nse_index_instruments` (indices). Live. (Both reuse shared `now_ist()` + `touch_updated_at_ist()` + RLS service-role-only.)
+- `fetch_universe_instrument_list.py` — downloads `NSE.json.gz` (public, ~83,844 records), filters `segment=NSE_EQ AND instrument_type=EQ`, cross-refs `NSE_FO` underlyings for F&O flag. Verify-then-`--sync` modes.
+- `fetch_index_instrument_list.py` — same shape, `segment=NSE_INDEX`.
+- `instrument_store.py` — config-driven store for BOTH catalogue tables (mirrors `index_store.py`'s `TABLE_CONFIG` pattern): chunked upsert on `instrument_key` PK (500/batch) + `reconcile_active()` soft-delete + `sync_catalog()` orchestration + `connection_smoke_test()`.
+
+**KEY DATA FINDING (caught by Phase-1 verify-first):** filtering `segment=NSE_EQ` alone returns **9,687** records — but only **2,643** are actual company equities (`instrument_type=EQ`). The other ~7,000 are govt securities / bonds / debt (SG=4,301, GS, TB, GB, N*/Y*/Z* series). Must filter `instrument_type=EQ` too. ETFs are typed `EQ` (e.g. SMALLIETF) so captured automatically; ETF-specific research deferred. This is exactly why Phase-1-print-before-DB-write exists — a blind write would have polluted the universe with 7,000 non-stocks.
+
+**Bug found + fixed live — `.env` not loaded in the fetch→store chain.** First `--sync` failed: `Missing required environment variable 'F_SUPABASE_URL'` even though it existed in `.env`. Root cause: `db/supabase_client.py` reads `os.environ` but nothing in the fetch→store→supabase_client import chain called `load_dotenv()` (only `upstox_auth_client` self-loads, and this path doesn't import it). Fix: `load_dotenv()` at the top of each fetch script's `__main__` block (idempotent, localized). Did NOT modify shared `supabase_client.py` (Rule #7 — the Dhan pipeline depends on it; consolidating the load into that file is logged as an optional future refactor).
+
+**MILESTONE — Step 1 (instrument catalogue layer) complete & populated:**
+- `f_universe_instruments`: **2,643 stocks** (208 F&O-eligible), verified in DB.
+- `f_all_nse_index_instruments`: **139 indices**, verified in DB.
+- **Idempotency proven:** re-running `--sync` returned HTTP 200 (update) not 201 (insert), row counts unchanged (2,643 / 139), zero duplicates — the property the future scheduler depends on.
+- Full chain proven end-to-end: auth → public download → parse → filter → verify → chunked upsert → paginated soft-delete reconcile → Supabase (service-role, RLS bypassed).
+
+**Docs updated this session:** `fortuna_multi_strategy_roadmap.md` (build-status header, EQ-only finding, scheduler open-item §10, Postgres-vs-Parquet resolution §11); new `fortuna_code_flow.md` (auth→fetch→store→DB flow, per-file responsibilities, DB layer, Step-1-vs-Step-2 distinction); new `fortuna_strategy_thesis.md` (cross-market regime thesis); new `fortuna_spec_increment_2026-08-23.md` (scope + v0.4 corrections, to merge at next spec bump); `Fortuna-Learning-Concepts.md` (`__init__.py` note).
+
+**Open items surfaced:**
+- **Scheduler (important):** all fetches are manual `--sync` runs. Production needs an unattended, ordered, resumable scheduler (daily instrument refresh → daily OHLCV → fundamentals staleness check; weekly 1W; monthly 1Mo). Can't finalize until the OHLCV/fundamentals jobs exist. Options: APScheduler / Render Cron / task queue.
+- **Dhan → `dhan/` migration** still deferred (files loose in `market_data/`; move + fix imports + re-test as its own task). `market_data/` and `upstox/` now have `__init__.py`.
+- **Index data source migration** (Foundation Funnel's VIX/Nifty/GIFT from Dhan → Upstox) — separate future task; don't cancel Dhan Data API subscription until done.
+
+**Carried to next session — Step 2: OHLCV fetching.** Build `_ohlcv_engine.py` (shared fetch core) + `fetch_universe_ohlcv.py` / `fetch_index_ohlcv.py` (thin per-domain callers) + `read_ohlcv.py` (single read accessor) + `f_fetch_status` table + `track_fetch_status.py` (resumability). Priority order: (1) all indices, (2) Nifty 50 separate (own Parquet, intraday), (3) EQ stocks. Confirm Upstox V3 historical per-call date-range caps on first real call.
+
+### 2026-08-25/26 — Upstox data pipeline: OHLCV backfill + full Fundamentals layer (Steps 2 & 3) complete
+
+**Milestone summary.** The entire data foundation is now built and populated: OHLCV price history for the full universe in R2, and company fundamentals (screening Tier-1 + archival Tier-2) in Supabase. First fundamental watchlist screen ran successfully. This closes Steps 2 and 3 from the previous session.
+
+**STORAGE CHANGE (supersedes last session's plan): Supabase Storage → Cloudflare R2 for OHLCV.** Last session logged "bulk OHLCV → Parquet in Supabase Storage." Superseded: bulk OHLCV Parquet now lives in **Cloudflare R2** (bucket `fortuna-ohlcv`, S3-compatible, **zero egress fees** — decisive for repeated backtesting reads). Access via `db/r2_client.py` (`get_r2()`, `get_r2_settings()`). Supabase Postgres remains for all relational data. Rule of thumb settled: **per-entity files (R2/Parquet) when data is big-per-entity and read one-at-a-time** (OHLCV — load one stock's long series, compute); **relational rows (Postgres) when small-per-entity and filtered-across-all** (fundamentals screening — `WHERE pe<20 AND roe>12` across all stocks).
+
+**Step 2 — OHLCV pipeline (DONE).**
+- Built: `_ohlcv_engine.py` (fetch core — `fetch_candles`, `fetch_full_history` with decade-chunk pagination for the V3 daily span cap, `fetch_all_timeframes`), `ohlcv_store.py` (Parquet↔R2 — `backfill_instrument`, `update_instrument` merge-dedup, `_write_df`), `ohlcv_fetch_progress.py` (resumability ledger), shared `_ohlcv_backfill_runner.py` (`run_backfill(cfg)`, `cli_main(cfg)`, `DomainConfig`) with thin callers `fetch_index_ohlcv.py` / `fetch_universe_ohlcv.py`.
+- One Parquet per instrument, all three timeframes stacked (`timeframe` col: 1d/1w/1mo). Keys `upstox/universe/<ISIN>.parquet`, `upstox/indices/<slug>.parquet`.
+- Migration `005_fortuna_ohlcv_fetch_progress.sql` → `f_ohlcv_fetch_progress` (resumable per-instrument ledger).
+- **Result:** 135 indices + 2,638 stocks done, ~287 MB in R2, content-verified against live values. (4 BHARATBOND indices + 2 illiquid stocks fail candles — genuinely not available.)
+
+**Step 3 — Fundamentals pipeline (DONE).** Upstox Company Fundamentals API: 8 endpoints, keyed by ISIN except `competitors` (needs `instrument_key`). Split into Tier-1 (screening) and Tier-2 (archive).
+- **3 tables** (Migration `006_fortuna_fundamentals.sql`): `f_fundamentals_profile` (descriptive), `f_fundamentals_metrics` (screening workhorse — all numeric, one row/stock), `f_fundamentals_statements` (Tier-2 JSONB archive).
+- **Store:** `fundamentals_store.py` — `store_fundamentals(screening_only=)` (Tier-1: profile+metrics), `store_tier2_statements()` (Tier-2: the 4 archive endpoints → statements). Parsers strip `%` conditionally, compute growth/CAGR from core Revenue, sort periods newest-first.
+- **Orchestrators:** `fetch_universe_fundamentals.py` (Tier-1 screening backfill, ledger `f_fundamentals_fetch_progress` / Migration 007); `backfill_universe_fundamentals_onetime.py` (Tier-2 one-time archival, ledger `f_fundamentals_tier2_progress` / Migration 009, auto-cooldown).
+- **Result:** Tier-1 2,296 stocks done; Tier-2 2,290 archived, 0 failed.
+
+**ETF SPLIT (Migration `008_fortuna_split_etf_instruments.sql`).** ISIN-prefix analysis of the catalogue: INE=2,295 (companies), INF=347 (ETFs/MF units), IN9=1 (JAIN DVR — a real stock, kept). ETFs have no fundamentals and are a different KIND of instrument, so — matching the indices-table precedent (own table, not a per-row flag) — moved the 347 INF rows to new `f_etf_instruments`. `f_universe_instruments` is now **2,296 pure stocks**. ETFs preserved (not deleted) for a future regime-rotation/exposure layer. Staged migration (create→copy→verify→delete).
+
+**Gap analysis vs Ash's 15-criteria screener → Path A (reserve, fill later).** ~10 criteria Upstox serves directly (ROCE, ROE, P/E, P/B, 1Y+3Y sales/profit growth). 5 gaps left as reserved NULL columns in `f_fundamentals_metrics`, filled by later jobs: `market_cap_cr`/`shares_outstanding`/`face_value` (NSE quote-equity, issuedSize×price — Upstox has no reliable share count), `pledge_pct` (NSE disclosure feed), `debt_to_equity`/`interest_coverage`/`revenue_growth_5y`/`net_profit_growth_5y` (external Screener/Yahoo — borrowings/interest not broken out, only 4yr history).
+
+**Real bugs found + fixed (all caught by verify-first / the bulk run itself):**
+1. **CAGR complex-number bug** — `(negative)**(1/3)` yields a Python `complex`, which isn't JSON-serialisable → 107 loss-year stocks failed the DB write. Fix: `_cagr` returns `None` unless BOTH endpoints > 0 (CAGR through a loss is mathematically undefined anyway).
+2. **Bank revenue = NULL** — banks/NBFCs (SBI, HDFC, ICICI… ~260 major financials) have no "Revenue" line-item, only "Total Revenue" → all got NULL revenue. Fix: `_parse_income` falls back to "Total Revenue" when core "Revenue" is absent. Verified SBI (rev ₹712,643cr, 1Y +7.4%, 3Y CAGR +14.6%). Manufacturers unchanged (they keep core Revenue).
+3. **Array-ordering latent bug** — growth/CAGR trusted API array order; fixed with explicit newest-first sort (`_period_key` parses "Mar 2026" → sortable).
+4. **Partial-429 archive bug (Tier-2)** — if some of the 4 endpoints 429'd but others succeeded, a partial row got stored + marked done (permanently incomplete). Fix: if ANY endpoint is rate-limited, whole stock stays retryable (no partial write). Critical for an archival run.
+
+**RATE-LIMIT strategy (the defining constraint).** Upstox limits are FLAT (not raised by the Plus plan — verified): 25/sec, 250/min, **1000 / 30-min rolling** (the binding one). Fundamentals = 4 calls/stock, so ~250 stocks exhausts a window; a full run is inherently multi-hour. Defence layers: (1) `request_get` 1s/2s/4s retry; (2) proactive throttle; (3) **rate-limited ≠ failed** — a 429'd stock stays `pending` (retried), so the `failed` list stays meaningful (genuine no-data/ETFs only); (4) **auto-cooldown** in the Tier-2 backfill — per-stock 2 attempts 10s apart, and if the 2nd is still rate-limited, **sleep 30 min** then resume the SAME stock. The Tier-2 run finished 2,290/2,290 fully unattended (4 auto-sleeps navigated).
+
+**First watchlist screen ran** (not yet persisted): the ~10 available criteria as SQL against `f_fundamentals_metrics` → ~98–137 quality stocks (banks now included via the revenue fix). This is "Watchlist 1"; persistence design (criteria + materialized members, `f_watchlists` + `f_watchlist_members`, source flag) is an OPEN item.
+
+**Data verification.** Eyeballed all 3 fundamentals tables for representative ISINs (KRBL, Godrej, SBI, etc.) — values sane and cross-table consistent. Quirks documented (per-stock period vintage; Tier-2 lags Tier-1 ~1yr; two by-design NULL statements columns; negative CAGR valid). Decided to trust the data rather than exhaustively cross-check Screener now (breadth cross-check via Chartink list-comparison is the future method if needed).
+
+**Docs updated this session:** new `fortuna_data_pipeline_flow.md` (deep pipeline reference — 5-layer pattern, OHLCV+fundamentals call-trees, walk-throughs, rate-limit playbook, verification quirks + join SQL, run/argparse mechanics). This Build-Log entry. `fortuna_code_flow.md`, `Fortuna-Tech-Stack.md`, `Fortuna-Learning-Concepts.md`, `fortuna_multi_strategy_roadmap.md`, `fortuna_spec_increment_2026-08-23.md`, `fortuna_strategy_thesis.md` reconciled to current reality (R2 storage, 2,296 stocks + ETF split, fundamentals done).
+
+**Open items surfaced / carried forward:**
+- **Watchlist persistence** — build `f_watchlists` + `f_watchlist_members`; the 3 planned lists (fundamentals-swing, fundamentals-longterm, options/F&O). Next milestone.
+- **`update_universe_fundamentals_qtrly.py`** — recurring APPEND job (vs the one-time backfills); cadence TBD. Deferred until something consumes fresh data.
+- **NSE market-cap/shares fill job** — separate; fills the reserved gap columns (issuedSize×price).
+- **DuckDB analytical layer** + `read_ohlcv.py` accessor — deferred until bulk research reads begin.
+- **Scheduler / Render cloud runs** — for unattended recurring jobs, once they exist.

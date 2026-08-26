@@ -134,6 +134,93 @@ The AI gateway asks Claude (with web search) for a pre-market JSON snapshot. The
 
 ---
 
+
+## 15. CAGR is undefined through a negative value (and Python returns a *complex number*)
+
+**The concept:** Compound Annual Growth Rate is `((end / start) ** (1/years) - 1)`. That
+formula only makes sense when both `start` and `end` are positive. If a value went negative
+somewhere (a loss-making year), `end/start` can be negative, and a **negative number raised
+to a fractional power is a complex number** in Python — e.g. `(-8) ** (1/3)` returns
+`1+1.7j`, not `-2`. There's no real "growth rate" from +100 to -50 anyway; the concept
+breaks.
+
+**Where it bit Fortuna:** 107 loss-year stocks failed their DB write with `Object of type
+complex is not JSON serializable` — the complex CAGR couldn't be stored. The half-fix
+(guarding only `start <= 0`) missed the case where `end` is negative. The correct guard:
+return `None` unless **both** endpoints are `> 0`. `None` is the honest answer — "no
+meaningful growth rate here" — not a number.
+
+**Transferable lesson:** any fractional power (`** (1/n)`, `sqrt`, roots) is a landmine if
+the base can be negative. Guard the sign *before* the math, not after. Financial data
+routinely has negatives (losses, outflows), so this comes up constantly.
+
+## 16. Different entities, same report, different *shape* — parse defensively (banks vs manufacturers)
+
+**The concept:** two companies can both return an "income statement" that is structurally
+different. A manufacturer has a core **"Revenue"** line-item (excl. other income). A
+**bank/NBFC has no such line** — it reports "Interest Earned" / "Total Revenue" instead.
+Code that hard-looks-for "Revenue" silently returns NULL for every bank.
+
+**Where it bit Fortuna:** ~260 of India's largest companies (SBI, HDFC, ICICI, Bajaj
+Finance…) came back with NULL revenue — invisible to the entire revenue-growth screen —
+because the parser only knew the manufacturer shape. Fix: a **fallback chain** — prefer
+core "Revenue", fall back to "Total Revenue" when it's absent.
+
+**Transferable lesson:** when parsing data about many entities, don't assume one schema.
+Sector/type differences produce different shapes from the *same* endpoint. Build fallbacks,
+and always test the parser against a *deliberately different* entity (a bank, not just
+another manufacturer) — the verify-spike on one "normal" example won't reveal it.
+
+## 17. Rate limits shape the whole job — "rate-limited" is not "failed"
+
+**The concept:** an external API's rate limit (Upstox: 1000 requests / 30-min rolling
+window) can be the single most important design constraint. At 4 calls/stock, ~250 stocks
+exhausts the window, so a full backfill is inherently multi-hour — no amount of clever code
+removes the ceiling. The key design move is treating a `429 (rate-limited)` response as
+**retryable, distinct from a genuine failure**. A stock that 429'd stays `pending` (gets
+retried); only genuinely-dataless stocks are marked `failed`. This keeps the failure list
+*meaningful* instead of polluted with rate-limit noise.
+
+**How Fortuna handles it (layers):** (1) per-call retry with 1s/2s/4s backoff; (2) a
+proactive throttle between stocks; (3) rate-limited → stays pending; (4) an **auto-cooldown**
+in the archival backfill — 2 attempts per stock 10s apart, and if still blocked, sleep a
+full 30 minutes to let the window reset, then resume the *same* stock. Result: a 2,290-stock
+run finished fully unattended, self-navigating 4 rate walls.
+
+**Transferable lesson:** read the rate limits *before* designing a bulk job, compute the
+budget (calls × items ÷ limit = time), and make the job resumable + self-pacing so
+interruptions and walls are non-events. Never mark a rate-limited item as permanently failed.
+
+## 18. No partial writes to an archive — completeness gating
+
+**The concept:** when a record is assembled from several calls (Tier-2 = 4 endpoints), and
+some succeed while others are rate-limited, writing the *partial* record and marking it
+"done" permanently archives incomplete data — it never gets retried. For an archive (whose
+whole purpose is completeness), that's silent corruption.
+
+**Where it mattered in Fortuna:** the fix is — if **any** of the 4 endpoints was
+rate-limited, don't write anything; keep the whole stock retryable. Only write when the
+fetch was clean (any remaining NULLs are then *genuine* absences, not rate-limit gaps).
+
+**Transferable lesson:** distinguish "this field is genuinely empty" from "we failed to
+fetch this field." An all-or-nothing write for multi-source records prevents half-captured
+rows masquerading as complete.
+
+## 19. Perishable data — capture the window before it rolls off
+
+**The concept:** some sources only serve a *rolling* window (Upstox: ~4 years of financial
+history). Next year, the oldest year silently drops off and is **unrecoverable from that
+source**. So a company's early-turnaround years — often the most interesting to study later
+— are perishable. The response is a deliberate **one-time archival capture** now (store
+every stock's currently-available deep statements before they roll off), separate from the
+recurring **append** job that adds new periods going forward without overwriting the archive.
+
+**Transferable lesson:** distinguish *durable* sources (you can always re-fetch the full
+history) from *rolling-window* sources (history perishes). For the latter, archival capture
+is time-sensitive, and your storage/update strategy must **append, never overwrite**, or
+you destroy the very history you're trying to preserve.
+
+
 # Database
 
 ## 3. Row Level Security (RLS) on Supabase tables

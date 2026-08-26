@@ -54,11 +54,29 @@ python -m pip install --upgrade pip
 ## Step 4 — Install Fortuna's core Python packages
 
 ```
+# Data pipeline (backend, in use now)
+python -m pip install supabase python-dotenv requests
+python -m pip install pandas numpy pyarrow boto3
+
+# Backtesting / indicators (planned)
 python -m pip install vectorbt
 python -m pip install TA-Lib
 ```
+Data pipeline:
+- **supabase** — Postgres client (catalogues, fundamentals, progress ledgers).
+- **python-dotenv** — loads `.env` config (Supabase keys, Upstox token, R2 creds).
+- **requests** — HTTP client for the Upstox Analytics API + Dhan TOTP flow.
+- **pandas / numpy** — dataframes + numerics for OHLCV/fundamentals parsing.
+- **pyarrow** — reads/writes the OHLCV Parquet files.
+- **boto3** — S3 SDK, used as the **Cloudflare R2** client (bulk OHLCV storage).
+
+Backtesting / indicators (installed now, wired up later):
 - **VectorBT** — backtesting engine, tests strategies against historical data fast (NumPy/Numba-based).
 - **TA-Lib** — the technical indicator library behind VWAP, ADX, Supertrend, Bollinger Bands, etc.
+
+> **Note — `.env` also needs the R2 + Upstox keys** (beyond Supabase): the Cloudflare R2
+> account id / access key / secret / bucket, and the Upstox Analytics Token. See the data
+> pipeline doc for which vars each client reads.
 
 ---
 

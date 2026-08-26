@@ -35,7 +35,9 @@
 | pandas-ta-classic | Additional technical indicators on top of pandas | ⚪ |
 | `dhanhq` (Python SDK) | Official Dhan client — constructs `DhanContext` + `dhanhq` instance, wraps all API calls | 🟢 |
 | `pyotp` | Generates the live 6-digit TOTP code for headless token generation | 🟢 |
-| `requests` | HTTP client — calls Dhan's `generateAccessToken` endpoint for the TOTP flow | 🟢 |
+| `requests` | HTTP client — Dhan TOTP flow + Upstox Analytics API calls | 🟢 |
+| Upstox Analytics API | FREE market data — historical OHLCV, fundamentals, quotes, option chain, news (1-yr read-only Analytics Token). Replaces the planned paid Dhan Data API | 🟢 |
+| `pandas` / `numpy` | Dataframes + numerics for OHLCV/fundamentals parsing | 🟢 |
 | Dhan API — Trading/Auth | Broker API — order execution, funds, positions (free tier). Auth via TOTP flow, tested live (`/dhan/funds` returns real account data) | 🟢 |
 | Dhan API — Data | Historical OHLCV + live market feed. Requires paid Data API subscription (~₹499/mo), currently **Inactive** on account | ⚪ subscription pending |
 | Direction Funnel logic (MAC→NAT→FLO→PRE→ENG gates) | Fortuna's own signal-generation logic | ⚪ |
@@ -49,7 +51,11 @@
 | Supabase Postgres | Cloud-hosted relational database (Supabase Cloud, no local Docker) | 🟢 |
 | Row Level Security (RLS) | Postgres-level per-user data access enforcement | 🟢 (enabled by default on new tables; policies not yet written) |
 | Supabase CLI | Pushes schema migrations/edge functions from the terminal to the cloud project | 🟢 |
-| Data architecture (storage vs compute split) | What actually gets persisted vs recomputed on demand | ⚪ open decision |
+| Cloudflare R2 | S3-compatible object storage for bulk OHLCV Parquet — **zero egress fees** (decisive for repeated backtesting reads). Bucket `fortuna-ohlcv` | 🟢 |
+| `boto3` | AWS S3 SDK — used as the R2 client (`db/r2_client.py`) | 🟢 |
+| `pyarrow` | Parquet read/write for OHLCV files | 🟢 |
+| DuckDB | In-process analytical query engine over the R2 Parquet (bulk backtesting reads) | ⚪ deferred until research reads begin |
+| Data architecture (storage vs compute split) | RESOLVED: per-entity files (R2/Parquet) for big read-one-at-a-time data (OHLCV); relational rows (Postgres) for filter-across-all data (catalogues, fundamentals) | 🟢 decided |
 
 ---
 
