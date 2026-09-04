@@ -47,7 +47,7 @@ from __future__ import annotations
 import io
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional
 
 import pandas as pd
@@ -69,6 +69,7 @@ logger = logging.getLogger(__name__)
 _DOMAIN_PREFIX = {
     "universe": "upstox/universe",
     "indices": "upstox/indices",
+    "universe_intraday": "upstox/universe_intraday",
 }
 
 # Canonical Parquet column order.
@@ -79,13 +80,16 @@ _COLUMNS = ["timeframe", "ts", "trade_date", "open", "high", "low", "close",
 @dataclass
 class StoreResult:
     """Outcome of a store write. `ok` is the single flag. bytes_written + key give
-    the cost/traceability info logged on every write."""
+    the cost/traceability info logged on every write. `changed` distinguishes an
+    actual R2 write from a check that found nothing new (update_instrument only;
+    always True for backfill_instrument, which always writes)."""
     ok: bool
     instrument_key: str
     key: Optional[str] = None
     rows: int = 0
     bytes_written: int = 0
     error: Optional[str] = None
+    changed: bool = True
 
 
 # --- Key derivation --------------------------------------------------------
@@ -217,38 +221,40 @@ def backfill_instrument(
 def update_instrument(
     instrument_key: str,
     domain: str,
+    last_success_at: Optional[str] = None,
     timeframes: tuple[tuple[str, str], ...] = TIER1_TIMEFRAMES,
 ) -> StoreResult:
     """
-    Routine incremental update: fetch a short recent window for the GIVEN timeframes,
-    merge into the existing Parquet (dedup on timeframe+ts, keep newest = picks up the
-    freshest value of any still-forming candle), write the merged superset back.
+    Routine incremental update: fetch from the ledger's last_success_at through
+    today for the GIVEN timeframes, merge into the existing Parquet (dedup on
+    timeframe+ts, keep newest), write the merged superset back.
 
-    CADENCE IS THE CALLER'S JOB (the scheduler), not this function's. The scheduler
-    decides which timeframes to refresh on a given run and passes them in:
-      - weekday daily run   -> timeframes=(("days","1"),)              [1d only]
-      - after Friday close  -> add ("weeks","1")                       [1w]
-      - after month-end     -> add ("months","1")                      [1mo]
-    This function does NOT hardcode "all three every run" (that would waste calls
-    re-pulling weekly/monthly daily). Default is TIER1 all three for convenience in
-    manual/backfill-adjacent use, but production passes an explicit subset.
+    WINDOW = last_success_at -> today, no fixed per-unit sizing and no buffer.
+    last_success_at only ever advances on a genuine successful fetch (a miss
+    leaves it untouched — see the refresh runner's failure handling), so this
+    window is exactly "everything since we last confirmed complete," whatever
+    that gap actually is — a missed day or a missed month both self-heal
+    correctly, unlike a fixed window which only self-heals gaps smaller than
+    itself. last_success_at is supplied by the caller (read from the ledger via
+    get_done()); if not provided (shouldn't happen in practice — mark_done
+    always sets it together with status='done'), falls back to today-only as
+    the safe minimum rather than guessing a window.
 
-    Per-timeframe recent windows (a weekly bar needs a wider lookback than a daily one
-    to reliably capture the current, still-forming bar): days=10, weeks=21, months=95.
-    Windows overlap prior data, so small missed-run gaps self-heal.
+    CADENCE IS STILL THE CALLER'S JOB for WHICH timeframes to refresh on a given
+    run (unchanged) — this function still doesn't hardcode "all three every
+    run"; that's a separate decision from how far back to look.
 
-    If no existing file, behaves like a windowed create. FETCH-FIRST: a failed fetch
-    leaves the existing file untouched (never delete-first).
+    If no existing file, behaves like a windowed create. FETCH-FIRST: a failed
+    fetch leaves the existing file untouched (never delete-first).
     """
     to_d = date.today()
-    label_map = {("days", "1"): "1d", ("weeks", "1"): "1w", ("months", "1"): "1mo"}
-    # Recent-window lookback per unit — wide enough to capture the current forming bar.
-    window_days = {"days": 10, "weeks": 21, "months": 95}
+    from_d = date.fromisoformat(last_success_at[:10]) if last_success_at else to_d
+    label_map = {("days", "1"): "1d", ("weeks", "1"): "1w", ("months", "1"): "1mo",
+                ("minutes", "5"): "5m", ("minutes", "15"): "15m", ("minutes", "60"): "60m"}
 
     fresh: dict[str, OhlcvFetchResult] = {}
     for unit, interval in timeframes:
         label = label_map.get((unit, interval), f"{unit}{interval}")
-        from_d = to_d - timedelta(days=window_days.get(unit, 10))
         fresh[label] = fetch_full_history(instrument_key, unit, interval,
                                           from_date=from_d, to_date=to_d)
     fresh_df = _results_to_df(fresh)
@@ -265,6 +271,18 @@ def update_instrument(
                     .drop_duplicates(subset=["timeframe", "ts"], keep="last")
                     .sort_values(["timeframe", "ts"])
                     .reset_index(drop=True))
+
+        # No-op check: closed/settled candles refetched inside the recent window come
+        # back byte-identical, and rewriting unchanged data to R2 wastes a PUT for
+        # nothing gained. Only the still-forming bar (today's/this week's/this
+        # month's) or a genuine gap-fill actually changes `combined` vs `existing`.
+        existing_sorted = existing.sort_values(["timeframe", "ts"]).reset_index(drop=True)
+        if combined.equals(existing_sorted):
+            logger.info("No change for %s; R2 write skipped (%d rows unchanged).",
+                       instrument_key, len(combined))
+            return StoreResult(ok=True, instrument_key=instrument_key,
+                               key=_object_key(instrument_key, domain),
+                               rows=len(combined), bytes_written=0, changed=False)
     else:
         combined = fresh_df
 

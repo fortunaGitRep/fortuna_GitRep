@@ -305,6 +305,15 @@ TIER1_TIMEFRAMES: tuple[tuple[str, str], ...] = (
     ("months", "1"),
 )
 
+# Intraday timeframes — options-eligible stocks only (see build-log 2026-09-04).
+# 5m/15m/60m: enough resolution for intraday indicator screening without the row
+# volume 1-minute would add for comparatively little screening value.
+INTRADAY_TIMEFRAMES: tuple[tuple[str, str], ...] = (
+    ("minutes", "5"),
+    ("minutes", "15"),
+    ("minutes", "60"),
+)
+
 
 def fetch_all_timeframes(
     instrument_key: str,
@@ -317,7 +326,8 @@ def fetch_all_timeframes(
     keyed by a short label ('1d'/'1w'/'1mo'/...) -> OhlcvFetchResult. Each timeframe
     is independent: one failing doesn't stop the others.
     """
-    label_map = {("days", "1"): "1d", ("weeks", "1"): "1w", ("months", "1"): "1mo"}
+    label_map = {("days", "1"): "1d", ("weeks", "1"): "1w", ("months", "1"): "1mo",
+                ("minutes", "5"): "5m", ("minutes", "15"): "15m", ("minutes", "60"): "60m"}
     out: dict[str, OhlcvFetchResult] = {}
     for unit, interval in timeframes:
         label = label_map.get((unit, interval), f"{unit}{interval}")
