@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-08-23 (Upstox data pipeline — instrument catalogue layer built & populated: 2,643 stocks + 139 indices live in Supabase)
+**Last updated:** 2026-09-04 (News fetch + options-intraday OHLCV built and backfilled; ledger multi-domain fix; dynamic refresh window redesign; live option chain + expired options researched)
 
 ---
 
@@ -445,3 +445,74 @@ backend/
 - **NSE market-cap/shares fill job** — separate; fills the reserved gap columns (issuedSize×price).
 - **DuckDB analytical layer** + `read_ohlcv.py` accessor — deferred until bulk research reads begin.
 - **Scheduler / Render cloud runs** — for unattended recurring jobs, once they exist.
+
+---
+
+### 2026-09-04 — Daily OHLCV refresh runner built & verified (Step 2, ongoing path)
+
+**Goal:** the recurring counterpart to the one-time Step-2 backfill — a daily job that keeps D/W/M current for every already-backfilled instrument, without re-pulling full history.
+
+**What got built:**
+- `ohlcv_fetch_progress.py` — added `get_done(domain=)`: paginated read of `status == 'done'` rows, the refresh runner's work list (mirrors the existing `get_pending()` shape).
+- `_ohlcv_refresh_runner.py` (new) — shared refresh orchestration, mirrors `_ohlcv_backfill_runner.py`'s structure (same throttle, per-instrument isolation, `RunSummary`) but walks the opposite end of the ledger (`status='done'`, not pending) and calls `update_instrument()` instead of `backfill_instrument()`. Kept as a **separate runner, not a `--mode` flag on the backfill runner** — backfill and refresh have different ledger lifecycles (one-time-complete vs. recurring), and branching them together risked coupling bugs between the two.
+- `refresh_universe_ohlcv.py` / `refresh_index_ohlcv.py` (new) — thin per-domain callers, same shape as the backfill callers.
+
+**Design decisions:**
+- **Cadence: all three Tier-1 timeframes every run**, no calendar-conditional branching (no "only refresh weekly on Fridays"). `update_instrument()`'s lookback windows are already small (10/21/95 days for d/w/mo), so the added API cost of refreshing W/M daily is negligible against the 1000/30-min limit — simpler and correct beats a clever calendar branch.
+- **Failure handling: a refresh miss does NOT call `mark_failed()`.** That would flip the ledger row to `failed` and pull the instrument into the *backfill* runner's queue (a full-history re-fetch) — wrong response to a transient daily miss. Refresh leaves the row untouched on failure; `update_instrument()`'s overlapping lookback windows self-heal a missed day on tomorrow's run. Only success calls `mark_done()` (bumps `last_success_at`).
+- Refresh runner takes `domain: str` directly rather than reusing backfill's `DomainConfig` — that dataclass carries `catalogue_table`, which refresh never reads (works off the ledger, not the catalogue).
+
+**Mechanics confirmed (not just designed):** `update_instrument()` fetches only the windowed lookback (not full history), then read-existing → merge-dedup-in-memory → atomic full rewrite to R2 (object storage can't append in place; the rewrite carries the untouched prior rows forward — behaves like an append, isn't mechanically one).
+
+**Verified live — universe, `--limit 5`:** 5/5 succeeded. Confirmed windowed fetches only (8 daily / 4 weekly / 4 monthly candles per instrument, not full history), correct merge (e.g. `INE0FFK01017` wrote 1,451 total rows off 16 fresh candles), R2 writes + `mark_done()` ledger updates both firing. Ledger post-run: `{pending: 0, done: 2776, failed: 6}` (the 6 failures are pre-existing genuinely-no-data instruments from backfill, correctly untouched by refresh since it only reads `status='done'`).
+
+**Carried forward from `--limit 5` smoke test, all completed same session:**
+- **Full unattended sweep, both domains** — `refresh_universe_ohlcv.py` (2,641 attempted) and `refresh_index_ohlcv.py` (135, incl. Nifty 50) both run without `--limit`. Universe took ~1h 17m (14:30→15:47) for 2,641 instruments × 3 timeframes; indices ~4 min more. Combined daily runtime ≈1h 20m — well inside an off-hours window. Parquet output spot-checked (`INE002A01018.parquet`, 8,345 rows): zero duplicate `(timeframe, ts)` pairs, correct latest bars per timeframe (1d/1w closed periods final, 1mo showing the correctly-updating in-progress candle).
+- **File logging added** — `cli_main()` now writes to `logs/ohlcv_refresh_<domain>.log` (overwritten fresh each run, one file per domain) alongside the existing console output, so a failure is diagnosable after the fact instead of lost with the terminal session.
+- **No-op write skip added to `update_instrument()`** (`ohlcv_store.py`) — the fixed 10/21/95-day lookback windows were being refetched and rewritten to R2 every run regardless of whether anything had actually changed (closed/settled candles refetched inside the window come back identical). Now: after merge-dedup, the result is compared against the existing stored data (`combined.equals(existing_sorted)`); if identical, the R2 write is skipped entirely (`StoreResult.changed=False`, `bytes_written=0`) — only a genuinely still-forming bar (today's/this week's/this month's) or a real gap-fill triggers a write. `mark_done()` still fires on every successful check regardless, since it means "confirmed current," not "data changed." `RunSummary` now reports `succeeded` (wrote) and `unchanged` (checked, no-op) separately. Verified live on indices `--limit 5` re-run: `succeeded: 0, unchanged: 5, data written: 0.00 MB` — correctly detected the already-current data and skipped every write.
+
+**Note on function naming (flagged, not yet fixed):** `_ohlcv_engine.fetch_full_history()` is called by `update_instrument()` for the small windowed refetch, not just full-history pulls — the log line `"Full history ... days/1: 8 candles"` refers to the function's pagination capability, not what it fetched. Misleading on a quick read; a rename (e.g. `fetch_range`) would remove the ambiguity if worth doing later.
+
+---
+
+### 2026-09-04 (cont'd) — News fetch, options-intraday OHLCV, ledger multi-domain tracking, dynamic refresh windows
+
+**News fetch (built, verified, full sweep run).**
+- New table `f_news_articles` (Migration 011) — relational Supabase, not R2 Parquet (point-lookup-by-stock read pattern, not bulk scan). Dedup via `UNIQUE(instrument_key, article_link)` + ignore-duplicates upsert. Upstox News API returns only the last 7 days — perishable, no backfill possible; daily gap-free running is what builds history.
+- Full scope: ALL 2,782 instruments (universe + ETF + indices), not just an options subset — batched 30/call (93 calls/day), no ledger needed (finishes under a minute, self-heals via the 7-day window on any miss).
+- `_news_engine.py` (fetch/parse, 30-key batching + own pagination), `news_store.py` (dedup-upsert), `fetch_daily_news.py` (orchestrator).
+- **Bisection fix for batch-poisoning:** one bad `instrument_key` in a 30-key batch was failing the WHOLE batch (`UDAPI1087` invalid-key error), losing news for the other 29 good stocks. `fetch_news_batch_resilient()` bisects on this specific error class only (not network/429/5xx, where bisecting wouldn't help) to isolate exactly which key is bad — ~10 extra calls, only for the one broken batch. Verified against a mock before shipping (11 calls to isolate 1 bad key out of 30, 29 good recovered).
+- **Found the bad keys: the same 4 BHARATBOND bond indices already known-bad for OHLCV** — Upstox rejects these across multiple of its own APIs, not News-specific. Fixed at the source: soft-deleted (`is_active=false`) in `f_all_nse_index_instruments` rather than a second hardcoded exclusion list in the news module — one source of truth (the catalogue flag), respected automatically by every fetch job's existing `is_active=True` filter.
+
+**Storage architecture review (R2 free-tier check, before building further).** Confirmed via Cloudflare's own pricing calculator: 10GB storage/month, 1M Class A (write) ops/month, 10M Class B (read) ops/month, free egress — all free, none crossed yet. Sized every planned data type against it: intraday OHLCV (1yr, 208 F&O stocks) ≈0.2GB, trivial; live option chain snapshots is the one real capacity decision — 5-min cadence ≈15GB/yr (exceeds free tier), 15-min ≈5.1GB/yr (fits) → **15-min cadence decided**. Locked the 3-file-per-instrument storage design: OHLCV D/W/M (existing), intraday OHLCV (new folder), computed indicators (new folder, kept separate from raw OHLCV so recompute never risks the source data) — same timeframe-stacking convention within each file.
+
+**Intraday OHLCV — built, backfilled, refresh-tested (F&O-eligible stocks only, 208 via `is_fno_eligible`).**
+- Scope: F&O-eligible subset only, 5m/15m/60m (`INTRADAY_TIMEFRAMES`), 1-year bounded backfill (not full since-2022 — indicators don't need years of intraday lookback).
+- Extended, not forked, the existing D/W/M engine: `_ohlcv_engine.py` gets `INTRADAY_TIMEFRAMES` + clean labels; `ohlcv_store.py` gets a new `universe_intraday` R2 domain prefix; `_ohlcv_backfill_runner.py`'s `DomainConfig` gets optional `timeframes`/catalogue-filter/`backfill_from_date` fields (all default to prior behavior); `_ohlcv_refresh_runner.py` gets an optional `timeframes` param. New thin callers: `fetch_universe_options_intraday_ohlcv.py`, `refresh_universe_options_intraday_ohlcv.py`.
+- **Full backfill: 208/208 succeeded, 0 failed, 105.93 MB written** — matches the earlier size estimate closely (26,446 actual rows/instrument vs. 26,750 estimated).
+- File logging extended to the backfill runner too (previously refresh-only) — same `logs/` folder, same overwrite-per-run pattern, now consistent across all three runners (backfill, refresh, news).
+
+**Ledger schema fix — multi-domain tracking without changing the primary key (explicit call: no PK change).**
+- Root cause: `f_ohlcv_fetch_progress`'s PK is `instrument_key` ALONE. The 208 F&O stocks already had a `domain='universe'` row from the original D/W/M backfill; seeding a second row under `domain='universe_intraday'` silently no-op'd on the upsert (208 loaded, 0 seeded, 0 pending — confirmed live).
+- Fix (Migration 012, no PK change): added `intraday_status`/`intraday_attempt_count`/`intraday_last_attempt_at`/`intraday_last_success_at`/`intraday_last_error` columns. A stock's one row now carries BOTH the original universe/indices tracking AND the intraday tracking side by side. `intraday_status` is NULL for any row never seeded into that domain — that's what lets `get_pending`/`get_done` scope correctly to the F&O subset without a `domain`-column filter (which would read the wrong value for these rows: still `'universe'`).
+- Every function in `ohlcv_fetch_progress.py` branches on `domain == 'universe_intraday'` to pick the right column set. `mark_attempt`/`mark_done`/`mark_failed` now require a `domain` param (previously didn't) — updated at all 5 call sites across both runners.
+- Verified against a mock reproduction of the exact bug before shipping: 208 seeded → 208 pending (was 0), universe domain's own tracking completely untouched, idempotent re-seeding confirmed.
+
+**Refresh window redesign — dynamic (`last_success_at → today`) instead of fixed per-unit windows.**
+- The original fixed windows (10/21/95/3/5 days per unit) only self-heal gaps smaller than the window — a genuine multi-week outage would permanently miss the days beyond it, with no built-in remedy. Real design gap.
+- Fix: `update_instrument()` now takes `last_success_at` from the caller (already available via `get_done()`'s `PendingItem`) and fetches exactly `last_success_at → today` — no fixed window, no buffer. `window_days` dict removed entirely.
+- **No buffer, by explicit decision.** An earlier draft added a small buffer "in case Upstox revises old candles after publication" — correctly called out as an invented concern with no supporting evidence. **Rule #18 added** to the working-style rule book: don't raise a caveat or edge case without actual evidence it applies to this system.
+- Verified against a mock: normal daily case → 1-day window; the 20-day-gap scenario that prompted this → a genuine 20-day window (not capped); missing `last_success_at` → falls back to today-only rather than guessing.
+- Live-tested on the freshly-backfilled intraday set: same-day refresh (`last_success_at` = today, since backfill just ran) correctly produced a same-day window and an expected empty response — a real multi-day-window test deferred to the next calendar day.
+
+**Researched, not yet built — live option chain + expired options.**
+- Live option chain: confirmed the exact response shape from Upstox's own docs — `market_data` + `option_greeks` per strike, both call and put, in ONE call (the earlier-assumed separate Greeks endpoint isn't needed). 15-min snapshot cadence, current + next month expiry (NSE stock options are monthly-only, unlike index options — no weekly-expiry decision needed here).
+- Expired options: confirmed the actual endpoint chain (`expiries → option/contract or future/contract → historical-candle`), old v2-style interval naming (not V3 unit/interval) — needs its own fetch function, can't reuse `_ohlcv_engine.py` as-is. **New finding: Get Expiries only covers 6 months of historical expiries**, not a deep archive — bounded like News (7 days), just longer. Still requires Upstox Plus opt-in (₹20→₹30/trade), confirmed via `UDAPI1149`. Whether the 6-month depth justifies the Plus tradeoff is still an open decision.
+
+**Open items surfaced / carried forward:**
+- **Check total size of 1-year intraday data once more of it accumulates** (currently 105.93MB for 208 stocks' initial backfill) — plan whether to extend backfill depth or scope once real usage patterns are visible.
+- **More watchlists beyond options stocks** — Fortuna is being built end-to-end with options stocks (`is_fno_eligible`) as the first/only watchlist; proper watchlist infrastructure (still pending from 2026-08-23) and additional watchlists explicitly deferred until this path is proven end-to-end.
+- **Live option chain snapshots** — build next; cadence/scope now locked (15-min, current+next month expiry, 208 F&O stocks).
+- **Expired options** — Plus opt-in decision still pending; 6-month depth limitation now known.
+- **Technical indicators (RSI/MACD/StochRSI etc.)** — computation, not fetch; explicitly deferred until all data-fetch items are done.
+- Carried from 2026-08-23, still open: watchlist persistence tables, `update_universe_fundamentals_qtrly.py` cadence, NSE market-cap/shares fill job, DuckDB analytical layer + `read_ohlcv.py`, Scheduler/Render cloud runs.

@@ -3,7 +3,8 @@
 How the data-layer pieces connect. Read top-to-bottom to understand the flow from
 "nothing" to "populated catalogue + (future) price/fundamentals data."
 
-Last updated: 2026-08-26. All three steps are now BUILT (catalogue, OHLCV, fundamentals).
+Last updated: 2026-09-04. All three steps are now BUILT (catalogue, OHLCV, fundamentals) —
+plus daily OHLCV refresh, options-intraday OHLCV, and daily news — all also BUILT.
 
 > **For the DEEP pipeline reference** (full call-trees, per-stock walk-throughs, rate-limit
 > playbook, verification quirks + SQL) see `fortuna_data_pipeline_flow.md`. This doc is the
@@ -137,7 +138,64 @@ PK = instrument_key. is_active for soft-delete.
 ```
 Resumability: `f_ohlcv_fetch_progress` marks each instrument pending/done/failed; a
 re-run skips `done`. Result: 135 indices + 2,638 stocks, ~287 MB. `update_instrument()`
-(merge-dedup on (timeframe, ts)) exists for the future incremental refresh.
+(merge-dedup on (timeframe, ts)) powers the **daily refresh — now BUILT** (see below).
+
+## Step 2b flow — daily OHLCV refresh (BUILT, 2026-09-04)
+
+```
+   refresh_index_ohlcv.py      refresh_universe_ohlcv.py       ← thin domain callers
+      |  domain="indices"          |  domain="universe"
+      └───────────┬─────────────────┘
+                  v
+        _ohlcv_refresh_runner.py       ← shared, separate from backfill runner
+              |    get_done(domain) → instruments already status='done'
+              v
+   ohlcv_store.update_instrument(ik, domain)
+        |    └── _ohlcv_engine.fetch_full_history()  windowed only (10d/21w-lookback/95mo-lookback,
+        |            NOT full history despite the function name)
+        |    └── merge-dedup vs existing Parquet → compare to existing:
+        |            identical  → R2 write SKIPPED (changed=False, bytes_written=0)
+        |            different  → _write_df() → put_object (atomic)
+        v
+   mark_done(ik) on every successful check (changed or not) — NOT mark_failed() on a
+   miss (would wrongly route into the backfill queue); a miss self-heals via next
+   run's overlapping lookback window.
+```
+Cadence: all 3 timeframes (1d/1w/1mo) every run, no calendar branching — the no-op
+skip above makes daily W/M checking cheap. Verified live: full sweep both domains
+(universe 2,641 instruments ~1h17m, indices 135 ~4min); a same-day re-run correctly
+reported `succeeded: 0, unchanged: 5, data written: 0.00 MB` on already-current data.
+Logs to `logs/ohlcv_refresh_<domain>.log` (overwritten per run) + console. Trigger is
+manual CLI; cron wiring deferred. **Window logic redesigned 2026-09-04**: was fixed
+per-unit days (10/21/95), now dynamic `last_success_at → today` (any gap size
+self-heals, not just gaps smaller than a fixed window) — no buffer, per Rule #18
+(don't invent unconfirmed concerns). Full detail: `fortuna_data_pipeline_flow.md` §2.4.
+
+## Step 2c flow — options-intraday OHLCV (BUILT, 2026-09-04)
+
+Same engine as Step 2, extended not forked, scoped to F&O-eligible stocks only
+(`is_fno_eligible=True`, 208 of 2,296) with 5m/15m/60m timeframes and a 1-year
+bounded backfill (not full since-2022). New R2 folder
+`upstox/universe_intraday/<ISIN>.parquet`. Required a ledger fix (see below) since
+these 208 stocks already had a `domain='universe'` row and a second-domain seed
+silently no-op'd on the single-column-PK upsert. Full backfill: 208/208 succeeded,
+105.93 MB. Full detail: `fortuna_data_pipeline_flow.md` §2.6-2.7.
+
+## Step 4 flow — News (BUILT, 2026-09-04)
+
+All 2,782 instruments (universe + ETF + indices, not just options stocks), batched
+30/call, no ledger (finishes in under a minute). Perishable — Upstox's News API only
+returns the last 7 days, no date-range param, no backfill possible. Stored
+relationally (`f_news_articles` in Supabase), not R2 Parquet — point-lookup-by-stock
+read pattern, not bulk scan. Dedup via unique `(instrument_key, article_link)` +
+ignore-duplicates upsert. `fetch_news_batch_resilient()` bisects on the
+invalid-key error class specifically to isolate one bad key without losing the other
+29 in its batch — found the 4 BHARATBOND indices already known-bad for OHLCV, fixed
+at the source (`is_active=false`) rather than a second exclusion list. Full detail:
+`fortuna_data_pipeline_flow.md` §2A.
+
+**Not yet built:** live option chain snapshots (15-min cadence, 208 F&O stocks) and
+expired option historical candles (Plus-gated, 6-month expiry depth limit found).
 
 ## Step 3 flow — Fundamentals, stocks only (BUILT)
 
@@ -185,6 +243,17 @@ python -m modules.market_data.upstox.upstox_auth_client
 # OHLCV backfill (Step 2):
 python -m modules.market_data.upstox.fetch_index_ohlcv    [--limit N] [--quiet]
 python -m modules.market_data.upstox.fetch_universe_ohlcv [--limit N] [--quiet]
+
+# OHLCV daily refresh (Step 2b):
+python -m modules.market_data.upstox.refresh_index_ohlcv    [--limit N] [--quiet]
+python -m modules.market_data.upstox.refresh_universe_ohlcv [--limit N] [--quiet]
+
+# Options-intraday OHLCV, F&O stocks only (Step 2c):
+python -m modules.market_data.upstox.fetch_universe_options_intraday_ohlcv   [--limit N]
+python -m modules.market_data.upstox.refresh_universe_options_intraday_ohlcv [--limit N]
+
+# Daily news, all instruments (Step 4):
+python -m modules.market_data.upstox.fetch_daily_news [--limit N] [--quiet]
 
 # Fundamentals Tier-1 screening (Step 3):
 python -m modules.market_data.upstox.fetch_universe_fundamentals [--limit N] [--quiet]
