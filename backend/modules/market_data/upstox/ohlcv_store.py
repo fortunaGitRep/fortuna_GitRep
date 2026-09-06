@@ -47,7 +47,7 @@ from __future__ import annotations
 import io
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
@@ -76,13 +76,53 @@ _DOMAIN_PREFIX = {
 _COLUMNS = ["timeframe", "ts", "trade_date", "open", "high", "low", "close",
             "volume", "open_interest"]
 
+# Minimum gap (minutes) since last_success_at before update_instrument() will even
+# attempt a fetch, PER DOMAIN -- not one global number. NOT a "same calendar day"
+# rule (that was tried and rejected -- it would block a legitimate later-in-day
+# attempt just because an earlier run that same day already succeeded, e.g.
+# pre-market then post-close). Domain-aware because D/W/M's finest granularity is
+# a full day (cooldown can be generous) while universe_intraday's finest bar is
+# 5 minutes (a 15-minute cooldown there would be needlessly conservative for
+# someone actively trading intraday options and wanting fresher checks).
+#
+# Both values are genuine unknown-tuned-by-testing numbers, same posture as
+# MAX_WORKERS: Upstox's actual candle-publish cadence after a bar closes isn't
+# documented for either granularity. 15 (D/W/M) is confirmed to stop an
+# accidental back-to-back re-run within minutes (2026-09-06: two universe runs
+# 4 min apart triggered sustained Cloudflare rate limiting). 5 (intraday) matches
+# the finest bar's own period as the logical minimum -- confirmed the OPPOSITE
+# failure mode live (2026-09-06: two intraday runs 44 SECONDS apart, guaranteed
+# empty since no 5-min bar could possibly exist yet) but has NOT itself been
+# tested for whether Upstox has any publish lag beyond the bar's own close.
+# Adjust either based on observed behavior, not assumed correct.
+_COOLDOWN_MINUTES_BY_DOMAIN = {
+    "universe_intraday": 5,
+}
+_DEFAULT_COOLDOWN_MINUTES = 15  # universe, indices, and any future D/W/M-only domain
+
+
+def _cooldown_minutes_for(domain: str) -> int:
+    return _COOLDOWN_MINUTES_BY_DOMAIN.get(domain, _DEFAULT_COOLDOWN_MINUTES)
+
+# Naive IST "now", matching ohlcv_fetch_progress._now_ist_iso()'s exact convention
+# (last_success_at is stored as a naive IST string) -- comparing against a
+# different timezone/offset would silently miscompute elapsed_minutes.
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _now_ist() -> datetime:
+    return datetime.now(_IST).replace(tzinfo=None)
+
 
 @dataclass
 class StoreResult:
     """Outcome of a store write. `ok` is the single flag. bytes_written + key give
     the cost/traceability info logged on every write. `changed` distinguishes an
     actual R2 write from a check that found nothing new (update_instrument only;
-    always True for backfill_instrument, which always writes)."""
+    always True for backfill_instrument, which always writes). `skipped` marks a
+    cooldown skip — no fetch attempted at all (see COOLDOWN_MINUTES), distinct
+    from `changed=False` which means a fetch WAS made and genuinely found nothing
+    new."""
     ok: bool
     instrument_key: str
     key: Optional[str] = None
@@ -90,6 +130,7 @@ class StoreResult:
     bytes_written: int = 0
     error: Optional[str] = None
     changed: bool = True
+    skipped: bool = False
 
 
 # --- Key derivation --------------------------------------------------------
@@ -229,16 +270,31 @@ def update_instrument(
     today for the GIVEN timeframes, merge into the existing Parquet (dedup on
     timeframe+ts, keep newest), write the merged superset back.
 
-    WINDOW = last_success_at -> today, no fixed per-unit sizing and no buffer.
-    last_success_at only ever advances on a genuine successful fetch (a miss
-    leaves it untouched — see the refresh runner's failure handling), so this
-    window is exactly "everything since we last confirmed complete," whatever
-    that gap actually is — a missed day or a missed month both self-heal
-    correctly, unlike a fixed window which only self-heals gaps smaller than
-    itself. last_success_at is supplied by the caller (read from the ledger via
-    get_done()); if not provided (shouldn't happen in practice — mark_done
-    always sets it together with status='done'), falls back to today-only as
-    the safe minimum rather than guessing a window.
+    COOLDOWN (added 2026-09-06, made domain-aware same day): if last_success_at is
+    less than this domain's cooldown (see _COOLDOWN_MINUTES_BY_DOMAIN) old, returns
+    immediately with skipped=True and makes NO API call at all. This is
+    deliberately NOT a same-calendar-day check — that was tried and rejected,
+    since it would permanently block a legitimate later-in-day attempt (e.g. a
+    pre-market run followed by a post-close run, both on the same day, both
+    wanting genuinely fresh data) just because an earlier run that day already
+    succeeded. A short elapsed-time cooldown instead only blocks a re-run that
+    happens shortly after the last one — confirmed live on two different failure
+    shapes: universe D/W/M (15min cooldown) stops a same-day re-run minutes apart
+    from triggering sustained Cloudflare rate limiting; universe_intraday (5min
+    cooldown, matching its finest 5-minute bar) stops a re-run SECONDS apart from
+    guaranteed-empty fetches (no new 5-min bar could possibly exist yet).
+
+    WINDOW (once past cooldown) = last_success_at -> today, no fixed per-unit
+    sizing and no buffer. last_success_at only ever advances on a genuine
+    successful fetch (a miss leaves it untouched — see the refresh runner's
+    failure handling), so this window is exactly "everything since we last
+    confirmed complete," whatever that gap actually is — a missed day or a missed
+    month both self-heal correctly, unlike a fixed window which only self-heals
+    gaps smaller than itself. last_success_at is supplied by the caller (read
+    from the ledger via get_done()); if not provided (shouldn't happen in
+    practice — mark_done always sets it together with status='done'), the
+    cooldown check is skipped entirely and the window falls back to today-only
+    as the safe minimum rather than guessing.
 
     CADENCE IS STILL THE CALLER'S JOB for WHICH timeframes to refresh on a given
     run (unchanged) — this function still doesn't hardcode "all three every
@@ -247,6 +303,16 @@ def update_instrument(
     If no existing file, behaves like a windowed create. FETCH-FIRST: a failed
     fetch leaves the existing file untouched (never delete-first).
     """
+    if last_success_at is not None:
+        cooldown = _cooldown_minutes_for(domain)
+        last_dt = datetime.fromisoformat(last_success_at)
+        elapsed_minutes = (_now_ist() - last_dt).total_seconds() / 60
+        if elapsed_minutes < cooldown:
+            logger.info("Cooldown skip for %s (%s): last checked %.1f min ago (< %d min).",
+                       instrument_key, domain, elapsed_minutes, cooldown)
+            return StoreResult(ok=True, instrument_key=instrument_key,
+                               changed=False, skipped=True)
+
     to_d = date.today()
     from_d = date.fromisoformat(last_success_at[:10]) if last_success_at else to_d
     label_map = {("days", "1"): "1d", ("weeks", "1"): "1w", ("months", "1"): "1mo",

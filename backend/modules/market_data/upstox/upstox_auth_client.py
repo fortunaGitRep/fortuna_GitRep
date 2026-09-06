@@ -54,6 +54,7 @@ import binascii
 import json
 import logging
 import os
+import random
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -244,7 +245,14 @@ def request_get(
         try:
             resp = session.get(url, params=params, timeout=timeout)
             if resp.status_code in _RETRIABLE_STATUS and attempt < MAX_RETRIES:
-                wait = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                # Jitter (0.5x-1.5x of the base backoff): under concurrency, several
+                # worker threads can get 429'd by the same rate-limit window at
+                # nearly the same moment. Without jitter they'd all wait exactly
+                # 1s/2s/4s and retry in lockstep, re-triggering the same limit —
+                # confirmed live 2026-09-06 (a burst of near-simultaneous 429s from
+                # Cloudflare's edge rate limiting, not just Upstox's own limit,
+                # under MAX_WORKERS=10). Jitter spreads retries out instead.
+                wait = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) * random.uniform(0.5, 1.5)
                 logger.warning(
                     "Upstox GET %s -> HTTP %d (attempt %d/%d). Retrying in %.1fs.",
                     path, resp.status_code, attempt, MAX_RETRIES, wait,
@@ -254,7 +262,7 @@ def request_get(
             return resp
         except requests.RequestException as exc:
             last_exc = exc
-            wait = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+            wait = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) * random.uniform(0.5, 1.5)
             logger.warning(
                 "Upstox GET %s failed (attempt %d/%d): %s. Retrying in %.1fs.",
                 path, attempt, MAX_RETRIES, exc, wait,

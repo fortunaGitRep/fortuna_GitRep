@@ -16,12 +16,29 @@ Standards applied: single responsibility (orchestration only — delegates fetch
 track), resumable + idempotent (leans on ohlcv_fetch_progress ledger), defensive
 (per-instrument try/except so one bad instrument can't abort the run), proactive
 throttle + the engine's existing 429/5xx retry as backstop, structured logging.
+
+CONCURRENCY (added 2026-09-06): this work is I/O-bound (waiting on the Upstox API
+and R2, not computing) — a full-history backfill run was found to spend ~2s/instrument
+on R2 read-merge-write alone, dwarfing the ~0.27s API fetch, with the whole run
+executed sequentially. Fixed with a ThreadPoolExecutor: each instrument's work
+(mark_attempt -> backfill -> mark_done/failed) runs as an independent unit on a
+worker thread and returns a result; RunSummary is aggregated ONLY on the main thread
+as futures complete, never mutated from inside a worker (avoids needing to make the
+dataclass itself thread-safe). Verified safe to share across threads: boto3 `client`
+objects (R2) are documented thread-safe; supabase-py sits on httpx, whose `Client` is
+documented thread-safe; `requests.Session` (Upstox) is not OFFICIALLY documented
+thread-safe but is safe in the pattern used here — headers set once at construction,
+never mutated after, concurrent .get() calls only. THROTTLE_SECONDS now paces each
+WORKER individually (not a single global sleep serializing the whole run) — a simple
+safety margin against Upstox's 25/sec cap, since backfill's paginated per-instrument
+fetches can burst many calls in quick succession.
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
@@ -33,10 +50,20 @@ from modules.market_data.upstox.ohlcv_store import backfill_instrument
 
 logger = logging.getLogger(__name__)
 
-# Proactive pace between instruments (seconds). Keeps us under Upstox limits
-# (25/sec, 250/min, 1000/30min); the engine's retry/backoff handles any 429 that
-# still slips through. Same value proven on the 139-index run.
+# Proactive pace per WORKER (seconds) — not a global serializing sleep. Keeps each
+# thread's own call rate modest; MAX_WORKERS threads pacing independently spreads
+# calls out without a hard rate-limiter. Tune down if Upstox 429s spike, tune
+# MAX_WORKERS down first if so (fewer threads in flight is the primary lever).
 THROTTLE_SECONDS = 0.25
+
+# Concurrent instruments in flight. I/O-bound work (network + R2), not CPU-bound —
+# threads, not processes. CONFIRMED 2026-09-06: 10 and 6 both triggered Cloudflare's
+# edge rate limiting heavily (HTTP 429 "Error 1015" — 6 alone produced 680
+# occurrences before finishing). 5 also showed rate-limit activity (53 occurrences),
+# recoverable via retry but not clean. 4 is the only count that ran with ZERO 429s
+# against a real workload (2,641 instruments, 1,423 genuine writes, 18m10s vs ~77m
+# sequential — 4.2x). Back to 4 as the settled choice.
+MAX_WORKERS = 4
 
 
 @dataclass(frozen=True)
@@ -91,14 +118,56 @@ def _load_catalogue(cfg: DomainConfig) -> list[tuple[str, str]]:
     return rows
 
 
+@dataclass
+class _WorkerResult:
+    """What a worker thread reports back — the main thread aggregates from this,
+    never from shared state touched inside the thread."""
+    instrument_key: str
+    ok: bool
+    bytes_written: int = 0
+    error: Optional[str] = None
+
+
+def _backfill_one(cfg: DomainConfig, ik: str) -> _WorkerResult:
+    """Runs on a worker thread: one instrument's full backfill + ledger update,
+    isolated try/except so one bad instrument can't take down the run. Returns a
+    result for the main thread to fold into RunSummary — does not touch summary
+    itself."""
+    try:
+        progress.mark_attempt(ik, cfg.domain)
+        result = backfill_instrument(ik, cfg.domain, timeframes=cfg.timeframes,
+                                     from_date=cfg.backfill_from_date)
+        if result.ok:
+            progress.mark_done(ik, cfg.domain)
+            time.sleep(THROTTLE_SECONDS)
+            return _WorkerResult(ik, ok=True, bytes_written=result.bytes_written)
+        progress.mark_failed(ik, cfg.domain, result.error or "unknown")
+        time.sleep(THROTTLE_SECONDS)
+        return _WorkerResult(ik, ok=False, error=result.error or "unknown")
+    except Exception as exc:  # noqa: BLE001 — isolate one bad instrument from the run
+        msg = f"unexpected: {exc}"
+        try:
+            progress.mark_failed(ik, cfg.domain, msg)
+        except Exception:  # noqa: BLE001
+            logger.error("Could not mark_failed for %s: %s", ik, exc)
+        time.sleep(THROTTLE_SECONDS)
+        return _WorkerResult(ik, ok=False, error=msg)
+
+
 def run_backfill(cfg: DomainConfig, limit: Optional[int] = None) -> RunSummary:
     """
     Backfill OHLCV for all pending instruments in a domain.
       1. Seed the ledger from the catalogue (idempotent; existing rows untouched).
       2. Get the pending work list (status != done) for this domain.
-      3. For each (optionally capped by `limit`): mark_attempt → backfill → mark
-         done/failed. One instrument failing does NOT abort the run.
-    Returns a RunSummary. Safe to re-run: done instruments are skipped by step 2.
+      3. Run each instrument's backfill on a worker thread pool (MAX_WORKERS at
+         once); the main thread aggregates results as they complete. One
+         instrument failing does NOT abort the run.
+    Returns a RunSummary. Safe to re-run: done instruments are skipped by step 2 —
+    unaffected by the concurrency change, since selection happens before the pool
+    is ever created.
+
+    Completion order is NOT submission order (threads finish whenever they finish)
+    — the [i/N] progress numbers in logs count completions, not a fixed sequence.
     """
     summary = RunSummary()
 
@@ -108,56 +177,54 @@ def run_backfill(cfg: DomainConfig, limit: Optional[int] = None) -> RunSummary:
     pending = progress.get_pending(domain=cfg.domain)
     if limit is not None:
         pending = pending[:limit]
-    logger.info("Backfilling %d pending %s instrument(s)%s.",
-                len(pending), cfg.domain, f" (limited to {limit})" if limit else "")
+    logger.info("Backfilling %d pending %s instrument(s)%s across %d worker(s).",
+                len(pending), cfg.domain, f" (limited to {limit})" if limit else "",
+                MAX_WORKERS)
 
-    for i, item in enumerate(pending, start=1):
-        ik = item.instrument_key
-        summary.attempted += 1
-        logger.info("[%d/%d] %s ...", i, len(pending), ik)
-        try:
-            progress.mark_attempt(ik, cfg.domain)
-            result = backfill_instrument(ik, cfg.domain, timeframes=cfg.timeframes,
-                                         from_date=cfg.backfill_from_date)
-            if result.ok:
-                progress.mark_done(ik, cfg.domain)
-                summary.succeeded += 1
-                summary.total_bytes += result.bytes_written
-            else:
-                progress.mark_failed(ik, cfg.domain, result.error or "unknown")
-                summary.failed += 1
-                summary.failures.append((ik, result.error or "unknown"))
-        except Exception as exc:  # noqa: BLE001 — isolate one bad instrument from the run
-            msg = f"unexpected: {exc}"
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(_backfill_one, cfg, item.instrument_key): item.instrument_key
+                   for item in pending}
+        for i, future in enumerate(as_completed(futures), start=1):
+            ik = futures[future]
             try:
-                progress.mark_failed(ik, cfg.domain, msg)
-            except Exception:  # noqa: BLE001
-                logger.error("Could not mark_failed for %s: %s", ik, exc)
-            summary.failed += 1
-            summary.failures.append((ik, msg))
-            logger.error("[%d/%d] %s FAILED: %s", i, len(pending), ik, exc)
+                res = future.result()
+            except Exception as exc:  # noqa: BLE001 — defensive backstop; _backfill_one
+                                       # already catches internally, so this shouldn't fire
+                logger.error("[%d/%d] %s FAILED (worker crashed): %s", i, len(pending), ik, exc)
+                summary.attempted += 1
+                summary.failed += 1
+                summary.failures.append((ik, f"worker crashed: {exc}"))
+                continue
 
-        time.sleep(THROTTLE_SECONDS)
+            summary.attempted += 1
+            if res.ok:
+                summary.succeeded += 1
+                summary.total_bytes += res.bytes_written
+                logger.info("[%d/%d] %s done.", i, len(pending), ik)
+            else:
+                summary.failed += 1
+                summary.failures.append((ik, res.error or "unknown"))
+                logger.warning("[%d/%d] %s failed: %s", i, len(pending), ik, res.error)
 
     return summary
 
 
 def print_summary(cfg: DomainConfig, summary: RunSummary) -> None:
-    print("\n" + "=" * 60)
-    print(f"{cfg.domain.upper()} OHLCV BACKFILL — SUMMARY")
-    print("=" * 60)
-    print(f"  attempted : {summary.attempted}")
-    print(f"  succeeded : {summary.succeeded}")
-    print(f"  failed    : {summary.failed}")
-    print(f"  data written: {summary.total_bytes/1024/1024:.2f} MB")
+    logger.info("=" * 60)
+    logger.info("%s OHLCV BACKFILL — SUMMARY", cfg.domain.upper())
+    logger.info("=" * 60)
+    logger.info("  attempted : %d", summary.attempted)
+    logger.info("  succeeded : %d", summary.succeeded)
+    logger.info("  failed    : %d", summary.failed)
+    logger.info("  data written: %.2f MB", summary.total_bytes / 1024 / 1024)
     if summary.failures:
-        print("\n  failures:")
+        logger.info("  failures:")
         for ik, err in summary.failures[:20]:
-            print(f"    {ik:<30} {err[:70]}")
+            logger.info("    %-30s %s", ik, err[:70])
         if len(summary.failures) > 20:
-            print(f"    ... and {len(summary.failures) - 20} more")
-    print("\n  ledger counts:", progress.get_counts(domain=cfg.domain))
-    print("=" * 60 + "\n")
+            logger.info("    ... and %d more", len(summary.failures) - 20)
+    logger.info("  ledger counts: %s", progress.get_counts(domain=cfg.domain))
+    logger.info("=" * 60)
 
 
 def cli_main(cfg: DomainConfig) -> None:

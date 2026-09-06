@@ -3,8 +3,9 @@
 How the data-layer pieces connect. Read top-to-bottom to understand the flow from
 "nothing" to "populated catalogue + (future) price/fundamentals data."
 
-Last updated: 2026-09-04. All three steps are now BUILT (catalogue, OHLCV, fundamentals) —
-plus daily OHLCV refresh, options-intraday OHLCV, and daily news — all also BUILT.
+Last updated: 2026-09-06. All three steps are now BUILT (catalogue, OHLCV, fundamentals) —
+plus daily OHLCV refresh (now with concurrency + cooldown), options-intraday OHLCV,
+and daily news — all also BUILT.
 
 > **For the DEEP pipeline reference** (full call-trees, per-stock walk-throughs, rate-limit
 > playbook, verification quirks + SQL) see `fortuna_data_pipeline_flow.md`. This doc is the
@@ -162,14 +163,26 @@ re-run skips `done`. Result: 135 indices + 2,638 stocks, ~287 MB. `update_instru
    run's overlapping lookback window.
 ```
 Cadence: all 3 timeframes (1d/1w/1mo) every run, no calendar branching — the no-op
-skip above makes daily W/M checking cheap. Verified live: full sweep both domains
-(universe 2,641 instruments ~1h17m, indices 135 ~4min); a same-day re-run correctly
-reported `succeeded: 0, unchanged: 5, data written: 0.00 MB` on already-current data.
-Logs to `logs/ohlcv_refresh_<domain>.log` (overwritten per run) + console. Trigger is
-manual CLI; cron wiring deferred. **Window logic redesigned 2026-09-04**: was fixed
-per-unit days (10/21/95), now dynamic `last_success_at → today` (any gap size
-self-heals, not just gaps smaller than a fixed window) — no buffer, per Rule #18
-(don't invent unconfirmed concerns). Full detail: `fortuna_data_pipeline_flow.md` §2.4.
+skip above makes daily W/M checking cheap. Logs to `logs/ohlcv_refresh_<domain>.log`
+(overwritten per run) + console. Trigger is manual CLI; cron wiring deferred.
+**Window logic redesigned 2026-09-04**: was fixed per-unit days (10/21/95), now
+dynamic `last_success_at → today` (any gap size self-heals, not just gaps smaller
+than a fixed window) — no buffer, per Rule #18 (don't invent unconfirmed concerns).
+
+**2026-09-06 additions:**
+- **Cooldown before fetch** — the no-op skip above only ever protected the R2
+  *write*; a same/near-instant re-run still made the full API fetch every time.
+  Fixed: domain-aware minimum gap since `last_success_at` (15min D/W/M, 5min
+  intraday) before even attempting a fetch — zero API calls if too recent.
+- **Concurrency** — `ThreadPoolExecutor`, `MAX_WORKERS=4` (tuned down from 10 after
+  hitting Cloudflare rate limiting). Universe full sweep: ~77min sequential → 18m10s
+  threaded (4.2x). Jitter added to retry backoff so concurrent workers don't retry
+  in lockstep after a shared 429.
+- **Confirmed:** Upstox's historical-candle API excludes the CURRENT calendar day
+  entirely, for every timeframe — a same-day refresh will always show today as a
+  miss, by design of the API, self-heals next day.
+
+Full detail: `fortuna_data_pipeline_flow.md` §2.4.
 
 ## Step 2c flow — options-intraday OHLCV (BUILT, 2026-09-04)
 

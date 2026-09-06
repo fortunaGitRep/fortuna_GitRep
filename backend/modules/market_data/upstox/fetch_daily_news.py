@@ -138,26 +138,28 @@ def run_daily_news_fetch(limit: Optional[int] = None) -> RunSummary:
 
 
 def print_summary(summary: RunSummary) -> None:
-    print("\n" + "=" * 60)
-    print("DAILY NEWS FETCH — SUMMARY")
-    print("=" * 60)
-    print(f"  total instruments : {summary.total_instruments}")
-    print(f"  batches attempted : {summary.batches_attempted}")
-    print(f"  batches clean     : {summary.batches_clean}")
-    print(f"  batches partial   : {summary.batches_partial}  (bad key isolated, rest stored)")
-    print(f"  batches failed    : {summary.batches_failed}  (non-isolatable; self-heals within the 7-day window)")
-    print(f"  articles fetched  : {summary.articles_fetched}  (upserted; duplicates silently skipped)")
+    logger.info("=" * 60)
+    logger.info("DAILY NEWS FETCH — SUMMARY")
+    logger.info("=" * 60)
+    logger.info("  total instruments : %d", summary.total_instruments)
+    logger.info("  batches attempted : %d", summary.batches_attempted)
+    logger.info("  batches clean     : %d", summary.batches_clean)
+    logger.info("  batches partial   : %d  (bad key isolated, rest stored)", summary.batches_partial)
+    logger.info("  batches failed    : %d  (non-isolatable; self-heals within the 7-day window)",
+                summary.batches_failed)
+    logger.info("  articles fetched  : %d  (upserted; duplicates silently skipped)",
+                summary.articles_fetched)
     if summary.bad_keys:
-        print(f"\n  bad keys isolated ({len(summary.bad_keys)}):")
+        logger.info("  bad keys isolated (%d):", len(summary.bad_keys))
         for key in summary.bad_keys:
-            print(f"    {key}")
+            logger.info("    %s", key)
     if summary.failures:
-        print("\n  failures (not isolated, likely transient):")
+        logger.info("  failures (not isolated, likely transient):")
         for label, err in summary.failures[:20]:
-            print(f"    {label:<40} {err[:70]}")
+            logger.info("    %-40s %s", label, err[:70])
         if len(summary.failures) > 20:
-            print(f"    ... and {len(summary.failures) - 20} more")
-    print("=" * 60 + "\n")
+            logger.info("    ... and %d more", len(summary.failures) - 20)
+    logger.info("=" * 60)
 
 
 def cli_main() -> None:

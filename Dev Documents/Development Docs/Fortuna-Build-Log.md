@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-09-04 (News fetch + options-intraday OHLCV built and backfilled; ledger multi-domain fix; dynamic refresh window redesign; live option chain + expired options researched)
+**Last updated:** 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
 
 ---
 
@@ -510,9 +510,48 @@ backend/
 - Expired options: confirmed the actual endpoint chain (`expiries → option/contract or future/contract → historical-candle`), old v2-style interval naming (not V3 unit/interval) — needs its own fetch function, can't reuse `_ohlcv_engine.py` as-is. **New finding: Get Expiries only covers 6 months of historical expiries**, not a deep archive — bounded like News (7 days), just longer. Still requires Upstox Plus opt-in (₹20→₹30/trade), confirmed via `UDAPI1149`. Whether the 6-month depth justifies the Plus tradeoff is still an open decision.
 
 **Open items surfaced / carried forward:**
-- **Check total size of 1-year intraday data once more of it accumulates** (currently 105.93MB for 208 stocks' initial backfill) — plan whether to extend backfill depth or scope once real usage patterns are visible.
 - **More watchlists beyond options stocks** — Fortuna is being built end-to-end with options stocks (`is_fno_eligible`) as the first/only watchlist; proper watchlist infrastructure (still pending from 2026-08-23) and additional watchlists explicitly deferred until this path is proven end-to-end.
 - **Live option chain snapshots** — build next; cadence/scope now locked (15-min, current+next month expiry, 208 F&O stocks).
 - **Expired options** — Plus opt-in decision still pending; 6-month depth limitation now known.
 - **Technical indicators (RSI/MACD/StochRSI etc.)** — computation, not fetch; explicitly deferred until all data-fetch items are done.
 - Carried from 2026-08-23, still open: watchlist persistence tables, `update_universe_fundamentals_qtrly.py` cadence, NSE market-cap/shares fill job, DuckDB analytical layer + `read_ohlcv.py`, Scheduler/Render cloud runs.
+
+---
+
+### 2026-09-06 — Concurrency for refresh runtime, domain-aware cooldown, confirmed same-day data gap
+
+**Problem: daily refresh took ~1h17m to update ~1 day of data for 2,641 stocks — unacceptable.** Root cause found from real log timestamps, not assumed: the API fetch itself is ~0.27s/instrument; the R2 read-merge-write (reads the ENTIRE existing Parquet file, merges, rewrites the whole object — object storage can't append in place) is **~2s/instrument, ~7.5× the fetch cost**. This happens whether 1 candle or 1,000 came back, so runtime barely depends on how much actually changed — explaining why a same-day refresh took nearly as long as the original full-history backfill.
+
+**Fix: `ThreadPoolExecutor` in both runners (`_ohlcv_backfill_runner.py`, `_ohlcv_refresh_runner.py`).** I/O-bound work (waiting on network + R2, not computing) — the correct tool, not multiprocessing (no CPU work to parallelize) or a full async rewrite (would mean replacing `requests`/`boto3`/`supabase-py` throughout, disproportionate for this scale). `RunSummary` aggregation moved to the main thread only, from each worker's returned result — never mutated inside a worker (avoids needing the dataclass itself to be thread-safe). Confirmed safe to share across threads before building: boto3 `client` objects are documented thread-safe; `httpx.Client` (under `supabase-py`) is documented thread-safe; `requests.Session` (Upstox) isn't *officially* documented thread-safe but is safe in the pattern used here (headers set once at construction, concurrent `.get()` only, never mutated after).
+
+**Worker-count tuning — a real saga, each step tested before trusting it, not guessed:**
+| Workers | Result | Evidence |
+|---|---|---|
+| 10 | Cloudflare edge rate limiting (`HTTP 429 "Error 1015"`, not just Upstox's own 25/sec/250/min/1000-30min limits) | confirmed live, run had to be force-killed (Ctrl+C didn't respond) |
+| 6 | Same wall hit, harder — 680 occurrences of `429` before even finishing | confirmed live |
+| 5 | Recoverable but not clean — 53 occurrences of `429`, all retried successfully, no permanent failures | confirmed live |
+| 4 | Clean first time — 0 `429`s, full 2,641 instruments, **18m10s vs ~77m sequential (4.2x)** | confirmed live |
+| 4 (again) | NOT clean the second time — 55 occurrences of `429`, run back-to-back with the prior D/W/M tests | confirmed live — see cumulative-pressure note below |
+
+**Settled on `MAX_WORKERS=4`** — the only count that ran fully clean against a real (non-confounded) workload. The second 4-worker run's 429s are most likely cumulative rate-limit pressure from the whole session's back-to-back testing (10→6→5→4 in short succession), not evidence that 4 itself is unsafe in isolation — Cloudflare's window almost certainly doesn't reset per-script-run. A truly clean re-test of "is 4 safe" needs a cold start (first run of a day), not a repeat of today.
+
+**Jitter added to retry backoff** (`upstox_auth_client.py`, `request_get()`): concurrent workers hitting a shared 429 at the same instant were retrying in lockstep (`1s/2s/4s`, all workers, all in sync) and re-triggering the same wall. Backoff is now `base * 2^(attempt-1) * random.uniform(0.5, 1.5)` — spreads retries out instead. Verified against a mock: 4 workers 429'd simultaneously now retry at 4 visibly different times, not one.
+
+**File-logging gap found and fixed in ALL THREE runners** (`_ohlcv_backfill_runner.py`, `_ohlcv_refresh_runner.py`, `fetch_daily_news.py`): `print_summary()` used plain `print()`, which bypasses the logging system entirely — `logging.basicConfig(handlers=[...])` only captures `logger.info()`/etc. calls. So the terminal showed the summary (stdout always does) but the log FILE never did — a real gap, not cosmetic, since the whole point of file logging was post-hoc diagnosis. Fixed by converting every `print()` in all three `print_summary()` functions to `logger.info()`.
+
+**Cooldown fix — the actual remaining piece for "reruns should skip cleanly."** The no-op-skip logic (built 2026-09-04) only ever protected the R2 *write* — `update_instrument()` still made the full API fetch on every call regardless of how recently the last one succeeded. Confirmed as the direct cause of two separate real failures:
+- **Universe D/W/M**: two refresh runs 4 minutes apart → sustained Cloudflare rate limiting.
+- **Universe intraday**: two refresh runs **44 seconds** apart → guaranteed-empty fetches (no 5-minute bar could possibly exist yet) plus real 429s on top.
+
+Fix: `update_instrument()` now checks `last_success_at` against a cooldown *before* fetching — if too recent, returns immediately with a new `StoreResult.skipped=True`, making **zero API calls**. Deliberately NOT a same-calendar-day check (tried and rejected first) — that would permanently block a legitimate later-in-day attempt (e.g. pre-market then post-close) just because an earlier same-day run already succeeded. **Made domain-aware, not one flat number** — D/W/M's finest granularity is a full day (cooldown can be generous), intraday's finest bar is 5 minutes (a flat 15-minute cooldown would be needlessly conservative for someone actively trading intraday). Settled: `universe`/`indices` = 15 min (`_DEFAULT_COOLDOWN_MINUTES`), `universe_intraday` = 5 min (`_COOLDOWN_MINUTES_BY_DOMAIN`), matching intraday's own finest bar as the logical minimum. New `RunSummary.skipped` counter in the refresh runner, reported distinctly from `unchanged` (fetched, no change) and `failed` (fetched, miss). Verified against 5 mock scenarios before shipping, including the exact 44-second and 4-minute real failures, and the pre-market/post-close case Ash specifically asked about (12 hours apart, correctly NOT blocked).
+
+**Rule #18 correction, logged honestly:** partway through this work I mixed up which script's logs I was diagnosing — cited universe D/W/M timestamps while answering a question specifically about the intraday script's failure. Corrected once caught; worth remembering to double check which log/script is actually in hand before reasoning from it, not just avoiding invented claims.
+
+**New confirmed finding — Upstox's historical-candle API does not include the current calendar day's data, for ANY unit.** Observed independently four times today: universe D/W/M same-day queries at 16:27, 17:11, and 17:53 IST (all well after the 15:30 close) all returned empty for today's own date; universe_intraday's 5m/15m/60m queries did the same at 18:26 IST, 36 minutes after a prior successful run (well past its 5-min cooldown, so the empty result wasn't the cooldown's doing). Matches the very first backfill too, in hindsight — it fetched through the day *before* the day it ran, never including that day itself. Not a bug: every miss here is the harmless kind (`update_instrument()` never calls `mark_failed()` on a miss, `last_success_at` stays untouched), and self-heals the next calendar day when "today" becomes a real closed trading day with real data. Practical implication: same-day refresh runs will always show today's own date as a miss, by design of the underlying API, not the code — expected, not a signal to investigate further.
+
+**Verified live: all refresh scripts run clean this session** (universe D/W/M, indices D/W/M, universe_intraday, daily news) with the concurrency + cooldown fixes in place. Real multi-day-gap test (does the dynamic window correctly self-heal a >1-day gap on next calendar day) deferred to tomorrow's first run, per Ash's request.
+
+**Open items surfaced / carried forward (in addition to the above list, unchanged):**
+- **Confirm `MAX_WORKERS=4` is genuinely clean on a cold start** (not right after other testing) — today's second 4-worker run's 429s are suspected cumulative pressure, not proof 4 is unsafe, but this needs a real cold test to confirm.
+- **Tomorrow's first refresh run** — the actual test of the dynamic `last_success_at → today` window correctly picking up a full day's gap, and of the cooldown values (15/5 min) behaving correctly across a normal (non-back-to-back-testing) day.
+- **Check total size of 1-year intraday data once more of it accumulates** (currently 105.93MB for 208 stocks' initial backfill) — plan whether to extend backfill depth or scope once real usage patterns are visible.

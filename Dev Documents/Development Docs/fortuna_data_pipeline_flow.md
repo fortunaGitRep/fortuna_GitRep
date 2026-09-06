@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑09‑04 (news pipeline + options-intraday OHLCV added; refresh window logic corrected; ledger multi-domain fix)._
+_Last updated: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -181,7 +181,7 @@ instrument's inception).
    d. `sleep(0.25s)` — proactive pace.
 5. **Summary** — attempted / succeeded / failed / bytes written + ledger counts.
 
-### 2.4 Daily refresh (BUILT — 2026‑09‑04, window logic REDESIGNED 2026‑09‑04)
+### 2.4 Daily refresh (BUILT — 2026‑09‑04, window logic REDESIGNED 2026‑09‑04, concurrency + cooldown added 2026‑09‑06)
 `ohlcv_store.update_instrument(ik, domain, last_success_at, timeframes)` fetches
 `from_date=last_success_at → to_date=today`, reads the existing Parquet, **merges +
 dedups on (timeframe, ts)**.
@@ -197,6 +197,27 @@ complete," whatever that gap actually is. No buffer beyond `last_success_at` (an
 earlier draft added one "in case Upstox revises old candles," ruled out as an
 invented concern with no supporting evidence — see Rule #18). `window_days` removed
 entirely; dead code.
+
+**Cooldown (added 2026‑09‑06) — gates the FETCH itself, not just the write.** The
+no‑op skip below only ever protected the R2 write; `update_instrument()` still made
+the full API fetch on every call regardless of how recently the last one succeeded.
+Confirmed as the direct cause of two real failures: universe D/W/M refreshed twice 4
+minutes apart triggered sustained Cloudflare rate limiting; universe_intraday
+refreshed twice 44 SECONDS apart hit guaranteed‑empty fetches (no 5‑minute bar could
+possibly exist yet) plus real 429s. Fix: before fetching, compare elapsed time since
+`last_success_at` against a **domain‑aware** cooldown
+(`_COOLDOWN_MINUTES_BY_DOMAIN` in `ohlcv_store.py`) — if too recent, return
+immediately with `StoreResult.skipped=True` and make ZERO API calls.
+Deliberately NOT a same‑calendar‑day check (tried and rejected first — would
+permanently block a legitimate later‑in‑day attempt, e.g. pre‑market then
+post‑close, just because an earlier same‑day run already succeeded). Domain‑aware
+because D/W/M's finest granularity is a full day (cooldown can be generous) while
+intraday's finest bar is 5 minutes: `universe`/`indices` = 15 min
+(`_DEFAULT_COOLDOWN_MINUTES`), `universe_intraday` = 5 min, matching its own bar
+period as the logical minimum. Both values are unconfirmed‑optimal, same posture as
+`MAX_WORKERS` below — tuned by observed behavior, not proven correct. New
+`RunSummary.skipped` counter, reported distinctly from `unchanged` (fetched, no
+change) and `failed` (fetched, miss).
 
 **No-op skip:** the merged result is compared against the existing stored data
 (`combined.equals(existing_sorted)`) *before* writing. If identical — the common case,
@@ -223,25 +244,69 @@ any size, not just ones smaller than a fixed window. Only success calls `mark_do
 (stamps `last_success_at`) — on every successful check, whether data changed or not,
 since it means "confirmed current," not "data changed."
 
+**CONFIRMED (2026‑09‑06): Upstox's historical-candle API does not include the
+current calendar day, for ANY unit.** Observed independently 4 times: universe D/W/M
+same‑day queries at 16:27, 17:11, 17:53 IST (all well after the 15:30 close) all
+returned empty; universe_intraday's 5m/15m/60m did the same 36 minutes after a prior
+success (well past its cooldown, so not the cooldown's doing). Matches the very
+first backfill in hindsight too — it fetched through the day *before* the day it
+ran. Not a bug — every miss here is the harmless kind (no `mark_failed()`, see
+above) and self‑heals the next calendar day when "today" becomes a real closed
+trading day. A same‑day refresh will always show today's own date as a miss, by
+design of the underlying API.
+
 **Orchestration:** separate runner from backfill (`_ohlcv_refresh_runner.py`), not a
 `--mode` flag on `_ohlcv_backfill_runner.py` — different ledger lifecycles (backfill:
-one‑time‑complete; refresh: recurring, always reopens). Same shape otherwise (throttle,
-per‑instrument isolation, `RunSummary`), but works `get_done(domain)` — instruments
+one‑time‑complete; refresh: recurring, always reopens). Same shape otherwise
+(per‑instrument isolation, `RunSummary`), but works `get_done(domain)` — instruments
 already `status='done'` (or `intraday_status='done'` for the intraday domain — see
 §2.7) — instead of `get_pending()`. Thin callers `refresh_universe_ohlcv.py` /
 `refresh_index_ohlcv.py` / `refresh_universe_options_intraday_ohlcv.py` mirror the
 backfill callers. Trigger is manual CLI for now; cron (Render/Supabase) wiring
 deferred — swaps what invokes the script, not the script itself.
 
-**Logging:** `cli_main()` writes to `logs/ohlcv_refresh_<domain>.log` (overwritten
-fresh each run, one file per domain) in addition to console output, so a failure is
-diagnosable after the fact. Same pattern now also on the BACKFILL runner
-(`logs/ohlcv_backfill_<domain>.log`) and the news job (`logs/news_fetch.log`) —
-all three runners log to the same `logs/` folder.
+**Concurrency (added 2026‑09‑06) — `ThreadPoolExecutor`, MAX_WORKERS=4.** Real log
+timestamps showed the API fetch is ~0.27s/instrument but the R2 read‑merge‑write
+(full‑file read + rewrite, object storage can't append in place) is ~2s/instrument
+— ~7.5× the fetch cost, and largely independent of how much data actually changed.
+This is I/O‑bound work (network + R2 waits, not computation) — threads, not
+processes or a full async rewrite. `RunSummary` is aggregated on the MAIN thread
+only, from each worker's returned result — never mutated inside a worker thread
+(avoids needing the dataclass itself thread‑safe). Confirmed safe to share across
+threads before building: boto3 `client` (documented thread‑safe), `httpx.Client`
+under supabase‑py (documented thread‑safe), `requests.Session` for Upstox (not
+*officially* documented thread‑safe, but safe in this usage — headers set once at
+construction, concurrent `.get()` only).
 
-**Status (2026‑09‑04):** full unattended sweep run on both D/W/M domains. Universe:
-2,641 attempted, ~1h 17m. Indices: 135 attempted (incl. Nifty 50), ~4 min. Combined
-daily runtime ≈1h 20m.
+**Worker-count tuning — tested at each step, not guessed:** 10 → Cloudflare edge
+rate limiting (`HTTP 429 "Error 1015"`, not just Upstox's own 25/sec/250/min/
+1000‑30min limits), had to force‑kill the run. 6 → same wall, worse (680
+occurrences before finishing). 5 → recoverable but not clean (53 occurrences, all
+retried successfully). 4 → clean first time (0 429s, full 2,641 instruments,
+**18m10s vs ~77m sequential — 4.2×**), but NOT clean on a second run minutes later
+(55 occurrences) — most likely cumulative pressure from the day's back‑to‑back
+testing rather than 4 itself being unsafe; a genuinely cold‑start test is still an
+open item. **Settled: `MAX_WORKERS=4`.**
+
+**Jitter on retry backoff** (`upstox_auth_client.request_get()`): concurrent
+workers 429'd at the same instant were retrying in lockstep (`1s/2s/4s`, all
+workers, all in sync), re‑triggering the same wall. Backoff is now
+`base * 2^(attempt-1) * random.uniform(0.5, 1.5)`. Verified against a mock: 4
+simultaneously‑429'd workers now retry at 4 visibly different times.
+
+**Logging:** `cli_main()` writes to `logs/ohlcv_refresh_<domain>.log` (overwritten
+fresh each run, one file per domain) in addition to console output. Same pattern on
+the BACKFILL runner (`logs/ohlcv_backfill_<domain>.log`) and the news job
+(`logs/news_fetch.log`) — all three log to the same `logs/` folder. **Gap found +
+fixed 2026‑09‑06:** `print_summary()` in all three runners used plain `print()`,
+which bypasses the logging system entirely — the FileHandler never captured it,
+only the terminal did (stdout always shows `print()` regardless of logging config).
+Fixed by converting every `print()` in all three `print_summary()` functions to
+`logger.info()`.
+
+**Status (2026‑09‑06):** all refresh scripts (universe D/W/M, indices D/W/M,
+universe_intraday, daily news) run clean with concurrency + cooldown in place. Real
+multi‑day‑gap self‑heal test deferred to the next calendar day's first run.
 
 ### 2.5 Status (2026‑08‑26)
 Indices: 135 done, 4 failed (BHARATBOND bond indices — Upstox rejects for candles;
@@ -588,12 +653,12 @@ be re‑fetched later).
 |---|---|
 | `db/supabase_client.py` | `get_supabase()` — shared Postgres client |
 | `db/r2_client.py` | `get_r2()`, `get_r2_settings()` — shared R2/S3 client |
-| `upstox_auth_client.py` | `request_get()` — authed Upstox calls + 429/5xx retry |
+| `upstox_auth_client.py` | `request_get()` — authed Upstox calls + 429/5xx retry with jitter (added 2026-09-06, prevents concurrent workers retrying in lockstep) |
 | `_ohlcv_engine.py` | OHLCV fetch core: `fetch_candles`, `fetch_full_history`, `fetch_all_timeframes` |
-| `ohlcv_store.py` | Parquet↔R2: `backfill_instrument`, `update_instrument` (no‑op skip via `StoreResult.changed`), `read_candles`, `_write_df` |
+| `ohlcv_store.py` | Parquet↔R2: `backfill_instrument`, `update_instrument` (no‑op write skip via `StoreResult.changed`; domain-aware fetch cooldown via `StoreResult.skipped` + `_COOLDOWN_MINUTES_BY_DOMAIN`, added 2026-09-06), `read_candles`, `_write_df` |
 | `ohlcv_fetch_progress.py` | OHLCV ledger: `seed_instruments`, `get_pending`, `get_done`, `mark_attempt/done/failed` (all require `domain` now — branch on `intraday_status` column set vs `status`), `get_counts(domain=)` |
-| `_ohlcv_backfill_runner.py` | shared OHLCV backfill orchestration: `run_backfill(cfg)`, `cli_main(cfg)`, `DomainConfig` (now also carries `timeframes`/`extra_filter_*`/`backfill_from_date`, all optional) |
-| `_ohlcv_refresh_runner.py` | shared OHLCV daily‑refresh orchestration: `run_refresh(domain, timeframes=)`, `cli_main(domain, timeframes=)` — separate from backfill runner (different ledger lifecycle) |
+| `_ohlcv_backfill_runner.py` | shared OHLCV backfill orchestration: `run_backfill(cfg)`, `cli_main(cfg)`, `DomainConfig` (carries `timeframes`/`extra_filter_*`/`backfill_from_date`, all optional). `ThreadPoolExecutor(MAX_WORKERS=4)` added 2026-09-06 — main-thread-only `RunSummary` aggregation |
+| `_ohlcv_refresh_runner.py` | shared OHLCV daily‑refresh orchestration: `run_refresh(domain, timeframes=)`, `cli_main(domain, timeframes=)` — separate from backfill runner (different ledger lifecycle). Same `ThreadPoolExecutor(MAX_WORKERS=4)` + `RunSummary.skipped` (cooldown outcome) added 2026-09-06 |
 | `fetch_index_ohlcv.py` | thin backfill caller — `INDEX_CONFIG` (domain=indices) |
 | `fetch_universe_ohlcv.py` | thin backfill caller — `UNIVERSE_CONFIG` (domain=universe) |
 | `fetch_universe_options_intraday_ohlcv.py` | thin backfill caller — F&O-filtered, `INTRADAY_TIMEFRAMES`, 1yr bound (domain=universe_intraday) |
