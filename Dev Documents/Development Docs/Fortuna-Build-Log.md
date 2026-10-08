@@ -555,3 +555,50 @@ Fix: `update_instrument()` now checks `last_success_at` against a cooldown *befo
 - **Confirm `MAX_WORKERS=4` is genuinely clean on a cold start** (not right after other testing) — today's second 4-worker run's 429s are suspected cumulative pressure, not proof 4 is unsafe, but this needs a real cold test to confirm.
 - **Tomorrow's first refresh run** — the actual test of the dynamic `last_success_at → today` window correctly picking up a full day's gap, and of the cooldown values (15/5 min) behaving correctly across a normal (non-back-to-back-testing) day.
 - **Check total size of 1-year intraday data once more of it accumulates** (currently 105.93MB for 208 stocks' initial backfill) — plan whether to extend backfill depth or scope once real usage patterns are visible.
+
+---
+
+### 2026-10-08 — Refresh after a 15-day gap, Nifty 50 intraday pipeline, OHLCV data audit + repair, indicator-phase decisions
+
+**1. Refresh after a 15+ day gap.** Question: refresh or backfill scripts for all four? **Refresh** — the window is `last_success_at → today`, so any gap size is just a longer window; backfill only looks at `pending`/`failed` rows and would do nothing for `done` instruments. Run: `refresh_index_ohlcv`, `refresh_universe_ohlcv`, `refresh_universe_options_intraday_ohlcv`, `fetch_daily_news`. News is not recoverable beyond Upstox's 7-day window. New listings need the catalogue sync first, then the backfill once. First attempt failed with `getaddrinfo failed` (Errno 11001) on the first Supabase query — **Supabase free tier had auto-paused**; restoring the project fixed it and all four scripts ran (today's dates visible on the files, as expected after a real write following a 15-day gap).
+
+**2. Nifty 50 intraday (5m/15m/60m) — built.**
+- **Upstox facts:** index intraday is free on the Analytics Token (Plus only gates expired-instrument history and the enhanced WebSocket). Read-only spike `test_index_intraday.py` (new): Nifty 50 returns 75/25/7 bars/day, volume is **0.0 on every candle**, current day excluded. Retention per docs: minute/hour from Jan 2022 — confirmed for Nifty 50, data starts **2022-01-03** (1,800-day test: 88,393 5m / 29,499 15m / 8,235 60m).
+- **Design decision:** my first proposal (a second domain `indices_intraday` with an `is_intraday_enabled` column, plus a `domain` filter in `get_pending`/`get_done`/`get_counts`) was **rejected by Ash** as unnecessary change to a working system. Reuse instead: Nifty 50 rides on the existing `universe_intraday` domain; one new thin caller, no SQL, no change to `ohlcv_fetch_progress.py`.
+- **Built:** `fetch_nifty50_intraday_ohlcv.py` (new; `NIFTY50_INTRADAY_CONFIG`, filter on `instrument_key = 'NSE_INDEX|Nifty 50'`, `backfill_from_date=None` = full history, `log_name="Nifty_50_intraday"`); `ohlcv_store.py` (`_INDEX_INTRADAY_PREFIX` + 4 lines in `_object_key`: `universe_intraday` + `NSE_INDEX|…` key → `upstox/nse_indexes_intraday/`); `_ohlcv_backfill_runner.py` (optional `DomainConfig.log_name`, default unchanged). Verified with 14 checks on stubbed copies of the real files; F&O stock and D/W/M paths unchanged.
+- **Result:** R2 `upstox/nse_indexes_intraday/Nifty_50.parquet`; log `logs/ohlcv_backfill_Nifty_50_intraday.log` (future indices: `<Index_Name>_intraday`). First run was a 1-year backfill (26,339 rows, ~630 KB; ledger 209 done / 0 failed), then extended to full history after resetting the ledger row (`update public.f_ohlcv_fetch_progress set intraday_status='pending' where instrument_key='NSE_INDEX|Nifty 50'`) and re-running: **~126,000 rows, ~3 MB**. `refresh_universe_options_intraday_ohlcv` needed no change — it now covers 209 instruments (208 stocks + Nifty 50).
+- **Gotcha:** the first re-run did not change the file (R2 still showed 645 kB = the old 630.4 KiB) because the ledger row was not yet `pending`, so "0 pending" and nothing was written. Check "Backfilling N pending" and "Wrote …" in the log, not the R2 listing.
+
+**3. Refresh-path review (code review only, nothing changed).** Ran the real `update_instrument` on a real Reliance Parquet (Upstox and R2 faked) with a 15-day gap: rows added, still-forming week/month refreshed, no duplicates, no-op skip works; refresh runner correct on cooldown skips. **Finding, deferred by Ash ("later or after step 1"):** `_results_to_df` silently drops a timeframe whose fetch failed and the ledger still advances (a weekly 429 after retries leaves a permanent hole). Unconfirmed in real data — the audit later showed no out-of-step files. Proposed ~5-line fix (return not-ok without writing on a real fetch error) not applied.
+
+**4. Indicator phase — decisions.** Upstox offers no computed indicators, so we calculate. EMAs 200/100/50/26/13/5 on the **daily timeframe only**; cross-above/cross-below for Nifty 50 (direction of the day for options), cross-above only for stocks (swing). Also S&R, RSI, StochRSI, MACD; later volume/volatility/VWAP, then options data (OI, IV, contracts). Timeframes 1M/1W/1D/60m/15m/5m; **4h/2h on hold**. Compute on the fly (six EMAs ≈ 0.6 ms on 6,632 daily bars vs ~2 s per R2 read/write), raw OHLCV left as is; VWAP/volume indicators stock-only (index volume is 0); daily EMAs on lower timeframes must use the previous completed daily bar. Sequence: audit → indicator spec from Ash → build module and check one stock against his chart → storage decision.
+
+**5. OHLCV data verification — audit built, one market-wide hole found and repaired.** Scope narrowed by Ash to **Nifty 50 + the watchlist (F&O-eligible subset, 208 stocks)**; the repair was deliberately run for all active instruments.
+
+*Built (all in `modules/market_data/upstox/`):*
+- `audit_ohlcv_data.py` — READ-ONLY audit of the 4 OHLCV pipelines, report-only (ERROR/WARN/INFO). Checks: ledger vs R2, structure, gaps vs the Nifty 50 calendar (calendar extended with Nifty intraday regular sessions missing from daily), stale/dead, price jumps, weekly/monthly rollups vs daily, intraday vs daily, special sessions, timestamp sanity, size outliers, indicator-readiness tiers. `--scope watchlist` (default, ~1.5 min) or `--scope all` (~7 min). Outputs `logs/data_audit.log`, `logs/data_audit_summary.txt` (overwritten) and a timestamped findings CSV.
+- `repair_ohlcv_window.py` — ONE-OFF repair. Re-fetches a recent D/W/M window and merges via `update_instrument()` (fetch-first, merge on `(timeframe, ts)`, skip write if unchanged). Ledger untouched, no pipeline code changed.
+- `inspect_weekly_bar.py` — READ-ONLY probe comparing a stored weekly bar (H/L/volume) with the daily bars of that week.
+
+*Finding — a single market-wide hole:* the 2026-08-24 daily bar was missing for every instrument; the weekly bar for that week had it. First suspected a bad weekly bar (78 of 208 watchlist weekly highs/lows wider than the dailies) — the probe showed the opposite: the weekly bar was right, the daily bar was missing. The calendar cross-check then confirmed it market-wide. Likely cause: the seam between the initial backfill (ended 2026-08-24 14:46, bars through 08-21) and the first refresh window. No recurrence evidence, so no pipeline change or overlap buffer was added.
+
+*Repair:* `--since 2026-08-17 --scope all`, 2,431 targets, 19:06–19:24. repaired=2415, unchanged=7, skipped=0, failed=9. The 9 failures are catalogue-active stocks with no recent candles (INE657B01025, INE0NLT01010, INE524T01011, INE24OJ01011, INE252A01019, INE670X01014, INE0LZF01013, INE887D01016, INE105I01020) — R2 left untouched; the catalogue `is_active` flag looks stale. (Four "429" lines in the log were row counts like "429 rows", not rate limits.)
+
+*Verified after repair (audit `--scope all`):* Nifty 50 and all 208 watchlist stocks clean for 2026-08-24; intraday set has 0 errors (185/208 fully clean); 2,624 of 2,643 stock files current. About 340 files still lack 2026-08-24 — 337 are `INF…` ETFs/funds, 3 are stocks. The probe showed two causes: a genuine no-trade day (weekly volume equals the sum of the dailies, e.g. INE501F01018) or Upstox's daily endpoint omitting a day the weekly bar has (two ETFs, weekly volume 25–33% above the dailies' sum). Not fixable by re-fetch, not in the watchlist, left as is.
+
+*Reader rules (apply whenever reading OHLCV for indicators):*
+1. Drop bars with non-positive prices (old histories, e.g. INE205A01025 has 472).
+2. Drop Nifty 50 intraday bars starting at/after 15:30 (92 days, 2022-03-24 .. 2025-05-21).
+3. Treat special sessions (Muhurat evenings, 2024 Saturday sessions, Sunday budget day) as short days, not gaps.
+4. For signals use the official daily candle once published, not the last intraday close (they differ by up to ~4.5%).
+
+*Conventions confirmed:* weekly bars dated Monday of the week; monthly bars the 1st of the month; Upstox never returns the current day; index volume always 0; Upstox daily candles are NOT adjusted for demergers/corporate actions.
+
+**Operational notes:** Ctrl+C did not stop a repair run mid-flight (worker threads blocked in network calls) — same as the earlier 10-worker run; press it again, use Ctrl+Break, or close the terminal (data is safe: R2 writes replace the whole object or nothing). Supabase free tier auto-pauses after inactivity.
+
+**Open items:**
+- **Corporate-action adjustment** — Tata Motors 2025-10-14 and Siemens 2025-04-07 are confirmed demergers; check PB Fintech INE417T01026 2026-09-24 (−36%) on chart. Needed before EMAs on affected stocks.
+- Deferred: partial-timeframe failure in `ohlcv_store._results_to_df` (see §3).
+- Optional: make the audit skip a "missing day" when weekly volume equals the daily sum (removes the ETF noise).
+- Catalogue `is_active` flag stale for the 9 stocks above.
+- **Next:** indicator spec in baby steps — first open question: which EMA pairs for the crosses.

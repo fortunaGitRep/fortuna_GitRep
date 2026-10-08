@@ -1,0 +1,157 @@
+==============================================================================
+FORTUNA OHLCV DATA AUDIT  --  2026-10-08 19:29 IST   (read-only)
+==============================================================================
+Reference: Nifty 50 daily last bar 2026-10-07 | latest weekday 2026-10-07 | Nifty 50 intraday last day 2026-10-07
+  convention probe  1w: ts=2026-09-21 00:00 trade_date=2026-09-21, ts=2026-09-28 00:00 trade_date=2026-09-28, ts=2026-10-05 00:00 trade_date=2026-10-05
+  convention probe  1mo: ts=2026-08-01 00:00 trade_date=2026-08-01, ts=2026-09-01 00:00 trade_date=2026-09-01, ts=2026-10-01 00:00 trade_date=2026-10-01
+Scope: ALL instruments -- 2782 of 2782 ledger instruments audited
+Files audited: 2987   |   ERROR 128   WARN 2343   INFO 4369
+
+NEEDS ATTENTION FIRST (errors)
+  [ERROR] GAP_DAILY  --  66 file(s)
+      recent weekday daily bars missing versus the Nifty 50 calendar (last 2 years)
+      by set: indices_daily=8, universe_daily=58
+        - NSE_EQ|INE014B01011 1d: 39 missing weekdays in last 2 years (longest run 19): 2024-11-14, 2025-04-16, 2025-04-17, 2025-04-22, 2025-04-23 (+34 more)
+        - NSE_EQ|INE058B01018 1d: 9 missing weekdays in last 2 years (longest run 2): 2024-10-29, 2024-10-30, 2025-01-06, 2025-05-20, 2026-04-09 (+4 more)
+        - NSE_EQ|INE069I01010 1d: 12 missing weekdays in last 2 years (longest run 4): 2026-04-10, 2026-04-15, 2026-04-16, 2026-04-17, 2026-04-21 (+7 more)
+        - NSE_EQ|INE08PH01015 1d: 10 missing weekdays in last 2 years (longest run 4): 2024-10-09, 2024-11-01, 2024-11-11, 2024-11-12, 2024-11-13 (+5 more)
+  [ERROR] OHLC_INVALID  --  23 file(s)
+      high/low inconsistent with open/close (high<low, high<open/close, low>open/close)
+      by set: indices_daily=18, universe_daily=17
+        - NSE_EQ|INE100D01014 1d: 6 invalid bars, first on 2013-04-10
+        - NSE_EQ|INE130B01031 1d: 4 invalid bars, first on 2013-04-08
+        - NSE_EQ|INE180C01042 1d: 4 invalid bars, first on 2013-04-09
+        - NSE_EQ|INE230B01021 1d: 8 invalid bars, first on 2013-04-08
+  [ERROR] STALE_SEVERE  --  9 file(s)
+      last bar is 5+ trading days behind (suspended/delisted or refresh failing)
+      by set: universe_daily=9
+        - NSE_EQ|INE0LZF01013 1d: last bar 2026-08-21, 31 trading days behind
+        - NSE_EQ|INE0NLT01010 1d: last bar 2026-09-15, 15 trading days behind
+        - NSE_EQ|INE105I01020 1d: last bar 2026-09-09, 18 trading days behind
+        - NSE_EQ|INE24OJ01011 1d: last bar 2026-09-15, 15 trading days behind
+  [ERROR] NON_POSITIVE_PRICE  --  6 file(s)
+      zero or negative price
+      by set: indices_daily=3, universe_daily=15
+        - NSE_EQ|INE113A01013 1d: 54 bars with price <= 0
+        - NSE_EQ|INE113A01013 1w: 13 bars with price <= 0
+        - NSE_EQ|INE113A01013 1mo: 5 bars with price <= 0
+        - NSE_EQ|INE205A01025 1d: 472 bars with price <= 0
+
+WORTH A LOOK (warnings)
+  [WARN] GAP_DAILY_OLD  --  947 file(s)
+      older weekday daily bars missing (history hole, matters for long backtests only)
+      by set: indices_daily=35, universe_daily=912
+        - NSE_EQ|INE001B01026 1d: 25 older missing weekdays (longest run 22): 2004-05-24, 2004-05-25, 2004-05-26 (+22 more)
+        - NSE_EQ|INE003A01024 1d: 25 older missing weekdays (longest run 22): 2004-05-24, 2004-05-25, 2004-05-26 (+22 more)
+        - NSE_EQ|INE006Z01016 1d: 691 older missing weekdays (longest run 85): 2018-03-09, 2018-03-12, 2018-03-15 (+688 more)
+        - NSE_EQ|INE007A01025 1d: 25 older missing weekdays (longest run 22): 2004-05-24, 2004-05-25, 2004-05-26 (+22 more)
+  [WARN] PRICE_JUMP  --  509 file(s)
+      daily close-to-close move over 25% (split/bonus/demerger unadjusted, or a real move)
+      by set: indices_daily=19, universe_daily=490
+        - NSE_EQ|INE003A01024 1d: 1 daily moves >25%; latest: 2025-04-07 -42.9%
+        - NSE_EQ|INE009A01021 1d: 1 daily moves >25%; latest: 2003-04-10 -26.6%
+        - NSE_EQ|INE00LM01029 1d: 2 daily moves >25%; latest: 2018-06-14 -96.3%, 2022-07-14 -49.1%
+        - NSE_EQ|INE00PV01013 1d: 1 daily moves >25%; latest: 2018-09-27 -85.8%
+  [WARN] GAP_DAILY  --  413 file(s)
+      recent weekday daily bars missing versus the Nifty 50 calendar (last 2 years)
+      by set: universe_daily=413
+        - NSE_EQ|INE006Z01016 1d: 3 missing weekdays in last 2 years (longest run 1): 2025-10-10, 2025-10-21, 2026-06-03
+        - NSE_EQ|INE00HZ01011 1d: 1 missing weekdays in last 2 years (longest run 1): 2026-09-09
+        - NSE_EQ|INE011D01013 1d: 3 missing weekdays in last 2 years (longest run 1): 2026-08-31, 2026-09-17, 2026-10-01
+        - NSE_EQ|INE023A01030 1d: 1 missing weekdays in last 2 years (longest run 1): 2024-10-25
+  [WARN] ROLLUP_MISMATCH  --  151 file(s)
+      weekly/monthly high/low differ from the daily bars inside the period
+      by set: indices_daily=51, universe_daily=160
+        - NSE_EQ|INE00LM01029 1w: 2/454 periods differ (2016-01-18/2016-01-24, 2016-02-01/2016-02-07); worst 2016-01-18/2016-01-24: 1w high 550.00 vs daily-derived 537.50 (+2.33%)
+        - NSE_EQ|INE00LM01029 1mo: 1/114 periods differ (2016-01); worst 2016-01: 1mo high 550.00 vs daily-derived 537.50 (+2.33%)
+        - NSE_EQ|INE00PV01013 1w: 2/402 periods differ (2018-10-15/2018-10-21, 2018-11-19/2018-11-25); worst 2018-11-19/2018-11-25: 1w high 1020.00 vs daily-derived 144.50 (+605.88%)
+        - NSE_EQ|INE00PV01013 1mo: 2/95 periods differ (2018-10, 2018-11); worst 2018-10: 1mo high 1020.00 vs daily-derived 145.00 (+603.45%)
+  [WARN] EXTRA_DAYS  --  62 file(s)
+      daily bars on dates Nifty 50 has none
+      by set: indices_daily=4, universe_daily=58
+        - NSE_EQ|INE00KV01022 1d: 1 days not in Nifty calendar: 2025-04-26
+        - NSE_EQ|INE00S901012 1d: 1 days not in Nifty calendar: 2025-04-26
+        - NSE_EQ|INE054301028 1d: 1 days not in Nifty calendar: 2025-04-26
+        - NSE_EQ|INE05ST01028 1d: 1 days not in Nifty calendar: 2025-04-26
+  [WARN] OHLC_INVALID  --  57 file(s)
+      high/low inconsistent with open/close (high<low, high<open/close, low>open/close)
+      by set: indices_daily=17, universe_daily=43
+        - NSE_EQ|INE005I01014 1d: 1 invalid bars, first on 2013-04-08
+        - NSE_EQ|INE047B01011 1d: 3 invalid bars, first on 2013-04-08
+        - NSE_EQ|INE050M01012 1d: 3 invalid bars, first on 2013-04-10
+        - NSE_EQ|INE083C01022 1d: 3 invalid bars, first on 2013-04-08
+  [WARN] FLAT_BAR_RUN  --  33 file(s)
+      5+ consecutive flat daily bars (open=high=low=close)
+      by set: universe_daily=33
+        - NSE_EQ|INE012Q01039 1d: 23 consecutive flat bars ending 2026-04-02
+        - NSE_EQ|INE01FR01028 1d: 5 consecutive flat bars ending 2026-06-29
+        - NSE_EQ|INE097E01028 1d: 18 consecutive flat bars ending 2026-10-07
+        - NSE_EQ|INE0AE001013 1d: 10 consecutive flat bars ending 2026-07-03
+  [WARN] INTRADAY_DAILY_CLOSE  --  19 file(s)
+      last intraday close differs from the official daily close (expected, small)
+      by set: stocks_intraday=57
+        - NSE_EQ|INE00H001014 5m: 29/268 full days: last intraday close vs daily close > 0.5%; worst 2025-09-19 intraday 471.00 vs daily 458.45 (+2.74%)
+        - NSE_EQ|INE00H001014 15m: 29/268 full days: last intraday close vs daily close > 0.5%; worst 2025-09-19 intraday 471.00 vs daily 458.45 (+2.74%)
+        - NSE_EQ|INE00H001014 60m: 29/268 full days: last intraday close vs daily close > 0.5%; worst 2025-09-19 intraday 471.00 vs daily 458.45 (+2.74%)
+        - NSE_EQ|INE00R701025 5m: 33/268 full days: last intraday close vs daily close > 0.5%; worst 2026-03-13 intraday 1890.00 vs daily 1839.90 (+2.72%)
+  [WARN] STALE  --  15 file(s)
+      last bar is behind the reference calendar
+      by set: universe_daily=25
+        - NSE_EQ|INE0LZF01013 1w: last 1w bar 2026-08-17, 7 weeks behind
+        - NSE_EQ|INE0LZF01013 1mo: last 1mo bar 2026-08-01, 2 months behind
+        - NSE_EQ|INE0NLT01010 1w: last 1w bar 2026-09-14, 3 weeks behind
+        - NSE_EQ|INE0NLT01010 1mo: last 1mo bar 2026-09-01, 1 months behind
+  [WARN] LEDGER_STALE  --  9 file(s)
+      ledger last_success_at is old although the instrument is active (refresh missing it)
+      by set: universe_daily=9
+        - NSE_EQ|INE0LZF01013 : last_success_at 2026-08-24T14:46:22
+        - NSE_EQ|INE0NLT01010 : last_success_at 2026-09-16T15:14:34
+        - NSE_EQ|INE105I01020 : last_success_at 2026-09-14T13:18:16
+        - NSE_EQ|INE24OJ01011 : last_success_at 2026-09-16T15:21:24
+  [WARN] SHORT_INTRADAY_DAYS  --  3 file(s)
+      days with fewer bars than the Nifty 50 reference
+      by set: stocks_intraday=6
+        - NSE_EQ|INE030A01027 5m: 1/270 days short: 2025-12-05=66/75
+        - NSE_EQ|INE030A01027 15m: 1/270 days short: 2025-12-05=22/25
+        - NSE_EQ|INE155A01022 5m: 1/270 days short: 2025-10-14=66/75
+        - NSE_EQ|INE155A01022 15m: 1/270 days short: 2025-10-14=22/25
+  [WARN] LEDGER_FAILED  --  2 file(s)
+      ledger shows a failed instrument
+      by set: universe_daily=2
+        - NSE_EQ|INE0K9O01026 : fetch returned no candles; R2 left untouched
+        - NSE_EQ|INE685T01010 : fetch returned no candles; R2 left untouched
+  [WARN] INTRADAY_DAILY_HL  --  2 file(s)
+      intraday high/low do not match the daily bar's high/low
+      by set: index_intraday=3, stocks_intraday=3
+        - NSE_EQ|INE195A01028 5m: 1/268 full days: intraday high/low != daily; worst 2026-09-04 low intraday 3482.20 vs daily 3475.00 (+0.21%)
+        - NSE_EQ|INE195A01028 15m: 1/268 full days: intraday high/low != daily; worst 2026-09-04 low intraday 3482.20 vs daily 3475.00 (+0.21%)
+        - NSE_EQ|INE195A01028 60m: 1/268 full days: intraday high/low != daily; worst 2026-09-04 low intraday 3482.20 vs daily 3475.00 (+0.21%)
+        - NSE_INDEX|Nifty 50 5m: 3/1088 full days: intraday high/low != daily; worst 2022-03-07 high intraday 16174.45 vs daily 15944.60 (+1.44%)
+  [WARN] POST_CLOSE_BARS  --  1 file(s)
+      Nifty 50 bars at/after 15:30 -- drop them when reading intraday for indicators
+      by set: index_intraday=3
+        - NSE_INDEX|Nifty 50 5m: 130 bars at/after 15:30 on 92 days (2022-03-24 .. 2025-05-21); drop when reading
+        - NSE_INDEX|Nifty 50 15m: 106 bars at/after 15:30 on 92 days (2022-03-24 .. 2025-05-21); drop when reading
+        - NSE_INDEX|Nifty 50 60m: 3 bars at/after 15:30 on 3 days (2022-10-24 .. 2024-11-01); drop when reading
+
+PLANNING INFO
+  stocks with daily history: 2643   <200 bars: 362   <100: 213   <50: 177   <26: 7
+  FLAT_BAR_RUN_OLD: 742 -- same, but older than a year -- informational
+  GAP_DAILY_OLD: 589 -- older weekday daily bars missing (history hole, matters for long backtests only)
+  GAP_WEEKEND: 1310 -- Saturday/Sunday special sessions that Nifty 50 has but this file lacks
+  INTRADAY_DAILY_CLOSE: 570 -- last intraday close differs from the official daily close (expected, small)
+  LEDGER_FAILED_INACTIVE: 4 -- failed ledger row for an inactive instrument -- informational
+  LEDGER_INACTIVE_INSTRUMENT: 351 -- ledger/R2 holds an instrument no longer active in the catalogue
+  LEDGER_STALE_INACTIVE: 2 -- same for an inactive/delisted instrument -- informational
+  SPECIAL_SESSION_DAYS: 3 -- Muhurat/Saturday/Sunday special sessions (short or off-grid) -- expected
+  STALE_INACTIVE: 8 -- inactive/delisted instrument, data naturally ends -- informational
+  TOO_FEW_ROWS: 195 -- a timeframe has fewer than 5 rows
+  ZERO_VOLUME_RUN_OLD: 227 -- same, but older than a year -- informational
+
+PER SET
+  set               ledger-expected   in R2  audited  ERROR files  WARN files  clean  freshness (lag 0 / 1-4 / 5+)
+  indices_daily                 135     135      135           15          54     66  135 / 0 / 0
+  universe_daily               2643    2643     2643           86        1312   1245  2624 / 8 / 11
+  stocks_intraday               208     208      208            0          23    185  208 / 0 / 0
+  index_intraday                  1       1        1            0           1      0  1 / 0 / 0
+==============================================================================

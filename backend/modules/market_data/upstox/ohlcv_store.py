@@ -72,6 +72,12 @@ _DOMAIN_PREFIX = {
     "universe_intraday": "upstox/universe_intraday",
 }
 
+# The 'universe_intraday' ledger domain also covers NSE indices (Nifty 50, ...). Their
+# Parquet lives in its own folder; stocks keep upstox/universe_intraday/. Routed by the
+# instrument_key's segment (not a new domain) so the refresh -- which only knows the
+# domain -- lands in the same folder as the backfill.
+_INDEX_INTRADAY_PREFIX = "upstox/nse_indexes_intraday"
+
 # Canonical Parquet column order.
 _COLUMNS = ["timeframe", "ts", "trade_date", "open", "high", "low", "close",
             "volume", "open_interest"]
@@ -140,6 +146,8 @@ def _object_key(instrument_key: str, domain: str) -> str:
     Build the R2 object key from the instrument_key + domain.
       'NSE_EQ|INE002A01018'  + universe -> 'upstox/universe/INE002A01018.parquet'
       'NSE_INDEX|Nifty 50'   + indices  -> 'upstox/indices/Nifty_50.parquet'
+      'NSE_INDEX|Nifty 50'   + universe_intraday
+                                        -> 'upstox/nse_indexes_intraday/Nifty_50.parquet'
     The suffix after '|' is the ISIN (stocks) or index name (indices); spaces are
     slugified to underscores to keep keys path/URL-safe.
     """
@@ -148,7 +156,10 @@ def _object_key(instrument_key: str, domain: str) -> str:
     if "|" not in instrument_key:
         raise ValueError(f"instrument_key '{instrument_key}' has no '|' segment")
     suffix = instrument_key.split("|", 1)[1].strip().replace(" ", "_")
-    return f"{_DOMAIN_PREFIX[domain]}/{suffix}.parquet"
+    prefix = _DOMAIN_PREFIX[domain]
+    if domain == "universe_intraday" and instrument_key.startswith("NSE_INDEX|"):
+        prefix = _INDEX_INTRADAY_PREFIX
+    return f"{prefix}/{suffix}.parquet"
 
 
 # --- DataFrame <-> candles -------------------------------------------------

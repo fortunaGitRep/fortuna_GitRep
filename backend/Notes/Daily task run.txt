@@ -1,0 +1,17 @@
+
+python -m modules.market_data.upstox.fetch_daily_news
+
+python -m modules.market_data.upstox.refresh_index_ohlcv
+
+python -m modules.market_data.upstox.refresh_universe_ohlcv
+
+python -m modules.market_data.upstox.refresh_universe_options_intraday_ohlcv
+
+python -m modules.market_data.upstox.fetch_nifty50_intraday_ohlcv
+
+
+
+
+
+
+

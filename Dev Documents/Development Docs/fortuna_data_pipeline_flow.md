@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -308,6 +308,27 @@ Fixed by converting every `print()` in all three `print_summary()` functions to
 universe_intraday, daily news) run clean with concurrency + cooldown in place. Real
 multi‑day‑gap self‑heal test deferred to the next calendar day's first run.
 
+**After a long gap (2026‑10‑08, first run in 15+ days) — use the REFRESH scripts, not backfill.**
+The window is `last_success_at → today`, so a 15‑ or 30‑day gap is simply a longer window pulled
+in one go. Backfill only works on `pending`/`failed` ledger rows, so it would do nothing for
+instruments already `done`. Run all four:
+```
+python -m modules.market_data.upstox.refresh_index_ohlcv
+python -m modules.market_data.upstox.refresh_universe_ohlcv
+python -m modules.market_data.upstox.refresh_universe_options_intraday_ohlcv
+python -m modules.market_data.upstox.fetch_daily_news
+```
+Notes: intraday copes with a long gap (the engine already splits minute requests into chunks that
+fit Upstox's per‑call limits); news cannot be recovered (Upstox returns only the last 7 days, so
+anything older than that inside the gap is gone — just run it to start accumulating again);
+refresh only touches instruments already `done`, so **new listings** need the instrument catalogue
+sync first, then the backfill script once (skips everything done, fetches only the new ones);
+expect a longer runtime than the usual "mostly unchanged" runs because nearly every file has real
+data to write. **Supabase free tier auto‑pauses after inactivity:** the first attempt failed
+with `getaddrinfo failed` (Errno 11001) on the very first Supabase query, before any Upstox call
+(nothing fetched or written). Fix = restore the project in the Supabase dashboard, then rerun
+(safe to retry).
+
 ### 2.5 Status (2026‑08‑26)
 Indices: 135 done, 4 failed (BHARATBOND bond indices — Upstox rejects for candles;
 since soft-deleted via `is_active=false`, so no longer attempted by any fetch job).
@@ -369,6 +390,152 @@ right column set. `mark_attempt`/`mark_done`/`mark_failed` now require an explic
 `domain` parameter (previously implicit via the single column set) — updated at all
 5 call sites across both runners. Verified against a mock reproduction of the exact
 bug before shipping.
+
+### 2.8 Nifty 50 intraday OHLCV (BUILT — 2026‑10‑08)
+
+Index intraday (5m/15m/60m) for **Nifty 50 only** (other indices only if later needed). Needed for
+the "direction of the day" signal on Nifty 50 options.
+
+**Upstox facts verified (read‑only spike `test_index_intraday.py`, no R2/Supabase/ledger):**
+- Index intraday is on the standard Analytics Token — **free, no Upstox Plus** (Plus only gates
+  expired‑instrument history and the enhanced WebSocket tier).
+- Nifty 50 returns 75 / 25 / 7 bars per day for 5m / 15m / 60m (first bar 09:15; last bar starts
+  15:25 / 15:15 / 15:15).
+- **Volume is 0.0 on every candle** (non‑null, never positive) — so the Parquet schema works
+  unchanged, but volume indicators (OBV, VWAP) cannot be computed for the index.
+- Retention per Upstox's V3 docs: minute and hour candles from **January 2022**; days/weeks/months from
+  January 2000. Confirmed for Nifty 50: all three timeframes start **2022‑01‑03**
+  (1,800‑day test: 88,393 5m / 29,499 15m / 8,235 60m candles).
+- The current day is never included (same as everything else).
+
+**Design — reuse, don't fork (decision 2026‑10‑08).** A second intraday domain (`indices_intraday`)
+was proposed first and rejected: the intraday ledger columns are shared and `get_pending` /
+`get_done` / `get_counts` deliberately skip the `domain` filter for intraday, so a second domain
+would have made the F&O refresh pick up Nifty 50 (209 instead of 208) and write it into the wrong
+folder, forcing changes to working code. Chosen instead: Nifty 50 rides on the **existing
+`universe_intraday` domain**.
+
+```
+   fetch_nifty50_intraday_ohlcv.py      (NEW thin caller, one variable: NIFTY50_INTRADAY_CONFIG)
+      |  DomainConfig(domain="universe_intraday",
+      |    catalogue_table="f_all_nse_index_instruments",
+      |    extra_filter_column="instrument_key", extra_filter_value="NSE_INDEX|Nifty 50",
+      |    timeframes=INTRADAY_TIMEFRAMES, backfill_from_date=None (= engine start, Jan 2022),
+      |    log_name="Nifty_50_intraday")
+      v
+   _ohlcv_backfill_runner.cli_main   (existing; log_name field added)
+      v
+   ohlcv_store   (existing; _object_key routes by instrument_key segment)
+      v
+   R2: upstox/nse_indexes_intraday/Nifty_50.parquet    (stocks stay in upstox/universe_intraday/)
+```
+- **Ledger:** the Nifty 50 row already exists with `domain='indices'`; seeding sets
+  `intraday_status='pending'` on it. No SQL migration, no change to `ohlcv_fetch_progress.py`.
+- **Refresh:** `refresh_universe_options_intraday_ohlcv` needed **no change** — it reads every row with
+  `intraday_status='done'`, so it now covers 209 instruments (208 F&O stocks + Nifty 50) and finds the
+  file via the same `_object_key`. Same 5‑minute intraday cooldown.
+- **Edits to existing files (two small):** `ohlcv_store.py` — `_INDEX_INTRADAY_PREFIX =
+  "upstox/nse_indexes_intraday"` and 4 lines in `_object_key` (domain `universe_intraday` + key
+  starting `NSE_INDEX|` → that folder); `_ohlcv_backfill_runner.py` — optional
+  `DomainConfig.log_name` (default `None` = domain name, as before) used by `cli_main` for the log
+  file name. Verified with 14 checks against stubbed copies of the real files before shipping; F&O
+  stock and D/W/M paths unchanged.
+- **Log:** `logs/ohlcv_backfill_Nifty_50_intraday.log` (future indices follow the same
+  `<Index_Name>_intraday` pattern). The refresh log stays one shared file.
+
+**Status (2026‑10‑08):** first run was a 1‑year backfill (2025‑10‑08 .. 2026‑10‑07, 26,339 rows,
+~630 KB, ledger 209 done / 0 failed). Then extended to full history (`backfill_from_date=None`);
+the ledger row was reset (`update public.f_ohlcv_fetch_progress set intraday_status='pending'
+where instrument_key='NSE_INDEX|Nifty 50'`) and the backfill re‑run — **~126,000 rows, ~3 MB**.
+Gotcha: the first re‑run did not replace the file (R2 still showed 645 kB = decimal kB of the
+original 630.4 KiB) because the ledger row was not yet `pending` ("0 pending", nothing written);
+after deleting the file and marking `pending` again the full file appeared. To check a backfill,
+read the log's "Backfilling N pending" and "Wrote …" lines, not the R2 listing.
+
+### 2.8b Refresh‑path review (2026‑10‑08, code review only, nothing changed)
+Ran the real `update_instrument` on a real Reliance Parquet with only the Upstox fetch and R2
+faked, for a 15‑day gap: new daily/weekly rows added, still‑forming week/month refreshed, no
+duplicates, order kept, old rows untouched; a re‑run with nothing new skipped the write. The
+refresh runner is correct on cooldown skips (`_refresh_one` returns before `mark_done`, so a
+skip never advances `last_success_at`). **One real finding, deferred:** `_results_to_df` silently
+drops any timeframe whose fetch failed (warning only) and `update_instrument` still returns ok,
+so a weekly 429 after retries would leave a hole that the next window starts after.
+Unconfirmed in real data (the audit showed no out‑of‑step files). Proposed fix (not applied):
+return not‑ok without writing when a requested timeframe fails with a real error; ~5 lines in the
+store. Interim check: search refresh logs for `not ok, skipping` lines mentioning HTTP 429 /
+"request failed" ("no candles in response" is normal).
+
+### 2.9 Data verification — audit, window repair, probe (BUILT — 2026‑10‑08)
+
+Done before starting the indicator phase, so indicators can be computed on data we trust.
+
+**Files** (all in `modules/market_data/upstox/`):
+| File | What it does |
+|---|---|
+| `audit_ohlcv_data.py` | READ‑ONLY audit of the 4 OHLCV pipelines (indices daily, universe daily, F&O‑stock intraday, Nifty 50 intraday): ledger vs R2, structure, gaps vs the Nifty 50 calendar, staleness, price jumps, weekly/monthly rollups vs daily, intraday vs daily, special sessions. Report only. |
+| `repair_ohlcv_window.py` | ONE‑OFF repair. Re‑fetches a recent D/W/M window and merges it into R2 via `update_instrument()`. Ledger untouched. Used to fill the 2026‑08‑24 daily hole. |
+| `inspect_weekly_bar.py` | READ‑ONLY probe: compares a stored weekly bar (H/L/volume) with the daily bars of that week. Tells a genuine no‑trade day from a day the source is missing. |
+
+**Run reference** (from `backend/`):
+```
+python -m modules.market_data.upstox.audit_ohlcv_data                 # Nifty 50 + watchlist (~1.5 min)
+python -m modules.market_data.upstox.audit_ohlcv_data --scope all     # everything (~7 min)
+python -m modules.market_data.upstox.repair_ohlcv_window --since 2026-08-17 --scope all [--dry-run] [--limit N]
+python -m modules.market_data.upstox.inspect_weekly_bar --keys "NSE_EQ|INE..." --week-start 2026-08-24
+```
+Outputs: `logs/data_audit.log`, `logs/data_audit_summary.txt` (both overwritten per run) and
+`logs/data_audit_findings_<ts>.csv` (timestamped). Repair log: `logs/ohlcv_repair_window.log`.
+
+**Findings and outcome (2026‑10‑08)**
+- Nifty 50 + the 208 F&O watchlist stocks: daily/intraday current (lag 0), no errors in the intraday set.
+- One market‑wide hole: the 2026‑08‑24 daily bar was missing for every instrument (the weekly bar had it).
+  Likely at the seam between the initial backfill and the first refresh. Repaired for 2,415 of 2,431 active
+  instruments (7 unchanged, 9 no‑candle failures); the audit rerun confirms Nifty 50 and all watchlist stocks are clean.
+- About 340 files (337 `INF…` ETFs/funds, 3 stocks) still lack 2026‑08‑24. Two causes: a genuine no‑trade day
+  (weekly volume equals the sum of the dailies) or Upstox's daily endpoint not returning a day the weekly bar has
+  (two ETFs checked). Not fixable by re‑fetch; not in the watchlist; left as is.
+- 9 catalogue‑active stocks return no recent candles (INE657B01025, INE0NLT01010, INE524T01011, INE24OJ01011,
+  INE252A01019, INE670X01014, INE0LZF01013, INE887D01016, INE105I01020): the catalogue `is_active` flag looks stale.
+- Old‑history oddities (zero‑price bars, invalid OHLC around 2013‑04, rollup mismatches in early years) only matter
+  for long backtests.
+
+**Reader rules — apply whenever reading OHLCV for indicators**
+1. Drop bars with non‑positive prices.
+2. Drop Nifty 50 intraday bars starting at/after 15:30 (92 days, 2022‑03‑24 .. 2025‑05‑21).
+3. Treat special sessions (Muhurat evenings, 2024 Saturday sessions, Sunday budget day) as short days, not gaps.
+4. For signals use the official daily candle once published, not the last intraday close (they differ by up to ~4.5%).
+
+**Known conventions**
+- Weekly bars are dated the Monday of the week; monthly bars the 1st of the month.
+- Upstox never returns the current day's candle; index volume is always 0.
+- Upstox daily candles are NOT adjusted for demergers/splits/bonuses.
+
+**Open items**
+- Corporate‑action adjustment approach (Tata Motors 2025‑10‑14 and Siemens 2025‑04‑07 are demergers; check PB Fintech
+  INE417T01026 2026‑09‑24 −36% on chart) — needed before EMAs on affected stocks.
+- Deferred: partial‑timeframe failure in `ohlcv_store._results_to_df` (the audit shows no out‑of‑step files).
+- Optional: make the audit skip a "missing day" when weekly volume equals the daily sum (removes the ETF noise).
+- Catalogue `is_active` flag is stale for the 9 stocks above.
+
+### 2.10 Indicator phase — decisions so far (2026‑10‑08, nothing built yet)
+- **Upstox does not provide computed indicators** (RSI/MACD/EMA/Stochastic/VWAP/S&R are not in its
+  market‑data categories) — we calculate them ourselves from OHLCV.
+- **EMAs 200/100/50/26/13/5 on the DAILY timeframe only.** Purpose: tell Ash where price stands and when
+  an uptrend/downtrend changes — **cross‑above and cross‑below for Nifty 50** (direction of the day for
+  options buying), **cross‑above only for stocks** (swing trading), checked each day.
+- Also wanted: support/resistance, RSI, Stochastic RSI, MACD. **Later:** volume/volatility/VWAP, then
+  options data (OI, IV, contracts).
+- **Timeframes in scope:** 1M, 1W, 1D, 60m, 15m, 5m. **4h/2h on hold** (NSE's 09:15–15:30 session gives
+  7 hourly bars, which don't divide into four; decide later whether 2h/4h are needed at all).
+- **Compute on the fly, leave raw OHLCV as is:** six EMAs took ~0.6 ms on a real 6,632‑bar daily series
+  and ~1.2 ms on 18,500 bars, while an R2 read/write is ~2 s per instrument, so stored indicator files
+  save almost nothing. Plan: one pure‑function indicator module on top of the OHLCV; revisit stored vs
+  on‑the‑fly once the real scanner read pattern is measured.
+- **Constraints:** the index's volume is all 0, so VWAP and any volume indicator work for stocks only;
+  daily EMAs shown on a lower timeframe must use the previous completed daily bar (no look‑ahead).
+- **Sequence agreed:** (1) read‑only data audit (done, §2.9) → (2) indicator spec from Ash (which EMA
+  pairs for crosses, S&R method, RSI/StochRSI/MACD params) → (3) build module and check one stock
+  against Ash's chart → (4) storage decision. Working in baby steps.
 
 ---
 
@@ -655,12 +822,14 @@ be re‑fetched later).
 | `db/r2_client.py` | `get_r2()`, `get_r2_settings()` — shared R2/S3 client |
 | `upstox_auth_client.py` | `request_get()` — authed Upstox calls + 429/5xx retry with jitter (added 2026-09-06, prevents concurrent workers retrying in lockstep) |
 | `_ohlcv_engine.py` | OHLCV fetch core: `fetch_candles`, `fetch_full_history`, `fetch_all_timeframes` |
-| `ohlcv_store.py` | Parquet↔R2: `backfill_instrument`, `update_instrument` (no‑op write skip via `StoreResult.changed`; domain-aware fetch cooldown via `StoreResult.skipped` + `_COOLDOWN_MINUTES_BY_DOMAIN`, added 2026-09-06), `read_candles`, `_write_df` |
+| `ohlcv_store.py` | Parquet↔R2: `backfill_instrument`, `update_instrument` (no‑op write skip via `StoreResult.changed`; domain-aware fetch cooldown via `StoreResult.skipped` + `_COOLDOWN_MINUTES_BY_DOMAIN`, added 2026-09-06), `read_candles`, `_write_df`; `_object_key` routes `universe_intraday` + `NSE_INDEX|…` keys to `upstox/nse_indexes_intraday/` (added 2026-10-08) |
 | `ohlcv_fetch_progress.py` | OHLCV ledger: `seed_instruments`, `get_pending`, `get_done`, `mark_attempt/done/failed` (all require `domain` now — branch on `intraday_status` column set vs `status`), `get_counts(domain=)` |
-| `_ohlcv_backfill_runner.py` | shared OHLCV backfill orchestration: `run_backfill(cfg)`, `cli_main(cfg)`, `DomainConfig` (carries `timeframes`/`extra_filter_*`/`backfill_from_date`, all optional). `ThreadPoolExecutor(MAX_WORKERS=4)` added 2026-09-06 — main-thread-only `RunSummary` aggregation |
+| `_ohlcv_backfill_runner.py` | shared OHLCV backfill orchestration: `run_backfill(cfg)`, `cli_main(cfg)`, `DomainConfig` (carries `timeframes`/`extra_filter_*`/`backfill_from_date`, all optional). `ThreadPoolExecutor(MAX_WORKERS=4)` added 2026-09-06 — main-thread-only `RunSummary` aggregation; optional `DomainConfig.log_name` = log file stem (added 2026-10-08) |
 | `_ohlcv_refresh_runner.py` | shared OHLCV daily‑refresh orchestration: `run_refresh(domain, timeframes=)`, `cli_main(domain, timeframes=)` — separate from backfill runner (different ledger lifecycle). Same `ThreadPoolExecutor(MAX_WORKERS=4)` + `RunSummary.skipped` (cooldown outcome) added 2026-09-06 |
 | `fetch_index_ohlcv.py` | thin backfill caller — `INDEX_CONFIG` (domain=indices) |
 | `fetch_universe_ohlcv.py` | thin backfill caller — `UNIVERSE_CONFIG` (domain=universe) |
+| `fetch_nifty50_intraday_ohlcv.py` | thin backfill caller — Nifty 50 intraday, `NIFTY50_INTRADAY_CONFIG` on the existing `universe_intraday` domain, full history from Jan 2022, own log name (§2.8) |
+| `test_index_intraday.py` | read‑only spike: fetches an index's 5m/15m/60m through the engine and prints coverage / bars per day / volume (no R2, no Supabase, no ledger); `--days N`, `--keys …` (§2.8) |
 | `fetch_universe_options_intraday_ohlcv.py` | thin backfill caller — F&O-filtered, `INTRADAY_TIMEFRAMES`, 1yr bound (domain=universe_intraday) |
 | `refresh_index_ohlcv.py` | thin daily‑refresh caller — domain=indices |
 | `refresh_universe_ohlcv.py` | thin daily‑refresh caller — domain=universe |
@@ -668,6 +837,9 @@ be re‑fetched later).
 | `_news_engine.py` | News fetch core: `fetch_news_batch`, `fetch_news_batch_resilient` (bisection on bad keys) |
 | `news_store.py` | News persistence: `store_articles` (dedup-upsert) |
 | `fetch_daily_news.py` | News orchestrator — all 2,782 instruments, 93 batches, no ledger |
+| `audit_ohlcv_data.py` | read‑only OHLCV data audit (§2.9) |
+| `repair_ohlcv_window.py` | one‑off D/W/M window repair, merge‑only, ledger untouched (§2.9) |
+| `inspect_weekly_bar.py` | read‑only weekly‑bar vs daily‑bars probe (§2.9) |
 | `fundamentals_store.py` | fetch+parse+store: `store_fundamentals` (Tier‑1), `store_tier2_statements` (Tier‑2), parsers |
 | `fetch_universe_fundamentals.py` | Tier‑1 screening backfill orchestrator |
 | `backfill_universe_fundamentals_onetime.py` | Tier‑2 one‑time archival orchestrator (auto‑cooldown) |
@@ -691,7 +863,9 @@ be re‑fetched later).
 | Key pattern | Contents |
 |---|---|
 | `upstox/universe/<ISIN>.parquet` | per‑stock OHLCV (1d/1w/1mo stacked) |
-| `upstox/indices/<slug>.parquet` | per‑index OHLCV |
+| `upstox/indices/<slug>.parquet` | per‑index OHLCV (1d/1w/1mo) |
+| `upstox/universe_intraday/<ISIN>.parquet` | per‑stock intraday (5m/15m/60m stacked), 208 F&O stocks |
+| `upstox/nse_indexes_intraday/<slug>.parquet` | index intraday (5m/15m/60m); Nifty 50 only for now → `Nifty_50.parquet` (§2.8) |
 
 ### Migrations
 `003` universe · `004` indices · `005` ohlcv progress · `006` fundamentals (3 tables) ·
@@ -711,6 +885,15 @@ python -m modules.market_data.upstox.fetch_universe_fundamentals [--limit N] [--
 
 # Fundamentals Tier‑2 (one‑time archive, auto‑cooldown)
 python -m modules.market_data.upstox.backfill_universe_fundamentals_onetime [--limit N] [--quiet]
+
+# Nifty 50 intraday (§2.8) — backfill; the existing intraday refresh then covers it
+python -m modules.market_data.upstox.fetch_nifty50_intraday_ohlcv
+python -m modules.market_data.upstox.test_index_intraday [--days N] [--keys "NSE_INDEX|Nifty 50" ...]   # read-only spike
+
+# Data verification (read-only audit) and one-off repair (§2.9)
+python -m modules.market_data.upstox.audit_ohlcv_data [--scope all]
+python -m modules.market_data.upstox.repair_ohlcv_window --since 2026-08-17 --scope all [--dry-run] [--limit N]
+python -m modules.market_data.upstox.inspect_weekly_bar --keys "NSE_EQ|INE..." --week-start 2026-08-24
 ```
 
 `--limit N` = verify on the first N (always do this before a full run).

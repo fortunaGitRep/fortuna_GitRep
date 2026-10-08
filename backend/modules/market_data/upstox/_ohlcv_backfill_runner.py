@@ -80,6 +80,9 @@ class DomainConfig:
     # Optional bounded backfill start (e.g. 1 year back for intraday, instead of
     # each unit's full history-start default in _ohlcv_engine). None = engine default.
     backfill_from_date: Optional[date] = None
+    # Optional log-file stem (e.g. 'Nifty_50_intraday' -> logs/ohlcv_backfill_Nifty_50_intraday.log).
+    # None = the domain name, as before.
+    log_name: Optional[str] = None
 
 
 @dataclass
@@ -240,7 +243,7 @@ def cli_main(cfg: DomainConfig) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=[
             logging.StreamHandler(),                                          # terminal, as before
-            logging.FileHandler(f"logs/ohlcv_backfill_{cfg.domain}.log", mode="w"),  # overwritten each run
+            logging.FileHandler(f"logs/ohlcv_backfill_{cfg.log_name or cfg.domain}.log", mode="w"),  # overwritten each run
         ],
     )
 
