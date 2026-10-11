@@ -1,8 +1,17 @@
 """
 modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema.py
 
-EMA calculator, part 1: EMA VALUES ONLY. Crosses, the stack ladder (stage -5..+5),
-the 50/200 golden/death cross and the plain-English texts are later steps.
+EMA calculator.
+  Part 1: EMA values (compute_emas).
+  Part 2: crosses (detect_crosses) -- close vs each EMA, stack pairs 5/13, 13/26,
+          26/50, 50/100, 100/200, and the 50/200 golden/death cross. Same rule as
+          TradingView ta.crossover / ta.crossunder: above = A > B now and A <= B on
+          the previous bar; below = A < B now and A >= B on the previous bar.
+  Part 3: stack_stage (-5..+5), check_states (side, days held, since, margin pts/%,
+          whole-candle-clear for close checks). Volume confirmation deferred (Nifty has
+          no volume from Upstox; revisit for stocks).
+          Facts only -- no strong/weak thresholds yet (to be tested on Nifty history later).
+  Later parts: snapshot + plain-English texts.
 
 TradingView parity (decided 2026-10-11): same method as Pine's ta.ema, so values
 match what Ash sees on his TradingView charts.
@@ -33,7 +42,7 @@ pandas (milliseconds for 6 EMAs on ~6,600 bars), unit tests (test_ema.py).
 Deferred (with reasons):
   - Logging: none inside the pure function (nothing can fail silently here; bad
     input raises). The manual check below and future callers log their runs.
-  - Crosses / stage / texts: separate later steps, by agreement (baby steps).
+  - Stage / texts: separate later steps, by agreement (baby steps).
 """
 
 from __future__ import annotations
@@ -44,6 +53,11 @@ import numpy as np
 import pandas as pd
 
 DEFAULT_PERIODS: tuple[int, ...] = (5, 13, 26, 50, 100, 200)
+
+# Part 2 — crosses. Each check is (A, B): "A crossed above / below B".
+#   close vs each EMA (6), the stack pairs (5), and the 50/200 golden/death cross (1).
+STACK_PAIRS: tuple[tuple[int, int], ...] = ((5, 13), (13, 26), (26, 50), (50, 100), (100, 200))
+GOLDEN_DEATH_PAIR: tuple[int, int] = (50, 200)
 
 
 def ema_tradingview(prices: pd.Series, period: int) -> pd.Series:
@@ -112,6 +126,139 @@ def compute_emas(
     return out
 
 
+# --- Part 2: crosses -----------------------------------------------------------
+
+def default_cross_checks(periods: Iterable[int] = DEFAULT_PERIODS) -> list[tuple[str, str]]:
+    """The 12 (A, B) column pairs: close vs each EMA, stack pairs, 50/200."""
+    periods = tuple(periods)
+    checks = [("close", f"ema_{p}") for p in periods]
+    checks += [(f"ema_{a}", f"ema_{b}") for a, b in STACK_PAIRS
+               if a in periods and b in periods]
+    a, b = GOLDEN_DEATH_PAIR
+    if a in periods and b in periods and (a, b) not in STACK_PAIRS:
+        checks.append((f"ema_{a}", f"ema_{b}"))
+    return checks
+
+
+def cross_above(a: pd.Series, b: pd.Series) -> pd.Series:
+    """TradingView ta.crossover: a > b on this bar AND a <= b on the previous bar.
+    A blank (NaN) on either bar gives False."""
+    return (a > b) & (a.shift(1) <= b.shift(1))
+
+
+def cross_below(a: pd.Series, b: pd.Series) -> pd.Series:
+    """TradingView ta.crossunder: a < b on this bar AND a >= b on the previous bar.
+    A blank (NaN) on either bar gives False."""
+    return (a < b) & (a.shift(1) >= b.shift(1))
+
+
+def detect_crosses(
+    df: pd.DataFrame,
+    checks: Iterable[tuple[str, str]] | None = None,
+) -> pd.DataFrame:
+    """
+    Return a copy of `df` (output of compute_emas) with two True/False columns per
+    check: cross_above_<A>_<B> and cross_below_<A>_<B>.
+      e.g. cross_above_close_ema_50, cross_below_ema_13_ema_26,
+           cross_above_ema_50_ema_200 (golden cross), cross_below_ema_50_ema_200 (death cross)
+
+    Both directions are always computed; which ones a caller uses (Nifty: both,
+    stocks: cross-above only) is the caller's choice.
+
+    Raises:
+        ValueError if a column named in `checks` is missing (run compute_emas first)
+        or bars are not in ascending 'ts' order.
+    """
+    checks = default_cross_checks() if checks is None else list(checks)
+    missing = sorted({c for pair in checks for c in pair if c not in df.columns})
+    if missing:
+        raise ValueError(f"column(s) missing for crosses: {missing} "
+                         f"(run compute_emas first)")
+    if "ts" in df.columns and not df["ts"].is_monotonic_increasing:
+        raise ValueError("bars are not in ascending 'ts' order; sort before detecting crosses")
+
+    out = df.copy()
+    for a, b in checks:
+        out[f"cross_above_{a}_{b}"] = cross_above(out[a], out[b])
+        out[f"cross_below_{a}_{b}"] = cross_below(out[a], out[b])
+    return out
+
+
+# --- Part 3: stage and check states ---------------------------------------------
+
+def stack_stage(df: pd.DataFrame, periods: Iterable[int] = DEFAULT_PERIODS) -> pd.Series:
+    """
+    Stage of the EMA stack per bar, -5 .. +5 (with the default 6 EMAs).
+      5 > 13            -> count up the ladder while each next pair is also aligned
+                           (+1 = only 5 above 13 ... +5 = 5>13>26>50>100>200)
+      5 < 13            -> same, downwards (-1 .. -5)
+      5 == 13           -> 0
+      5 or 13 blank     -> NaN
+    A blank EMA further up stops the count (a stock without 200 bars reaches at most +/-4).
+    """
+    periods = tuple(periods)
+    cols = [f"ema_{p}" for p in periods]
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"column(s) missing for stage: {missing} (run compute_emas first)")
+
+    up_run = pd.Series(True, index=df.index)
+    down_run = pd.Series(True, index=df.index)
+    stage = pd.Series(0.0, index=df.index)
+    for fast, slow in zip(cols, cols[1:]):
+        up_run = up_run & (df[fast] > df[slow])
+        down_run = down_run & (df[fast] < df[slow])
+        stage = stage + up_run.astype(float) - down_run.astype(float)
+    stage[df[cols[0]].isna() | df[cols[1]].isna()] = np.nan
+    return stage
+
+
+def check_states(
+    df: pd.DataFrame,
+    checks: Iterable[tuple[str, str]] | None = None,
+) -> pd.DataFrame:
+    """
+    For each (A, B) check, per bar, adds:
+      side_<A>_<B>        +1 above, -1 below, 0 equal, NaN blank
+      held_<A>_<B>        bars on the current side, counting this bar (cross day = 1)
+      since_<A>_<B>       trade_date (or index) where the current side began
+      margin_pts_<A>_<B>  A - B
+      margin_pct_<A>_<B>  (A - B) / B * 100
+      candle_clear_<A>_<B>  close checks only: whole candle beyond the line
+                            (above: low > B; below: high < B)
+    Returns a copy; the input is not modified.
+    """
+    checks = default_cross_checks() if checks is None else list(checks)
+    missing = sorted({c for pair in checks for c in pair if c not in df.columns})
+    if missing:
+        raise ValueError(f"column(s) missing for states: {missing} (run compute_emas first)")
+
+    out = df.copy()
+    labels = out["trade_date"] if "trade_date" in out.columns else pd.Series(out.index, index=out.index)
+    has_hl = "high" in out.columns and "low" in out.columns
+    new_cols: dict[str, pd.Series] = {}
+
+    for a, b in checks:
+        diff = out[a] - out[b]
+        side = np.sign(diff)                      # NaN stays NaN
+        run_id = (side != side.shift()).cumsum()  # new run on every change (NaN breaks runs)
+        held = side.groupby(run_id).cumcount() + 1
+        since = labels.groupby(run_id).transform("first")
+        blank = side.isna()
+
+        tag = f"{a}_{b}"
+        new_cols[f"side_{tag}"] = side
+        new_cols[f"held_{tag}"] = held.astype(float).mask(blank)
+        new_cols[f"since_{tag}"] = since.mask(blank)
+        new_cols[f"margin_pts_{tag}"] = diff
+        new_cols[f"margin_pct_{tag}"] = diff / out[b] * 100
+        if a == "close" and has_hl:
+            clear = ((side > 0) & (out["low"] > out[b])) | ((side < 0) & (out["high"] < out[b]))
+            new_cols[f"candle_clear_{tag}"] = clear
+
+    return pd.concat([out, pd.DataFrame(new_cols, index=out.index)], axis=1)
+
+
 # --- Manual check: Nifty 50 EMAs on the latest bars, to compare with TradingView ---
 
 if __name__ == "__main__":
@@ -133,6 +280,10 @@ if __name__ == "__main__":
     parser.add_argument("--bars", type=int, default=3, help="how many latest bars to print")
     parser.add_argument("--dates", nargs="+", metavar="YYYY-MM-DD",
                         help="print these trade dates instead of the latest bars")
+    parser.add_argument("--crosses", type=int, metavar="N",
+                        help="print the latest N crosses instead of EMA values")
+    parser.add_argument("--state", action="store_true",
+                        help="print stage + state of all 12 checks for the latest bar")
     args = parser.parse_args()
 
     res = read_for_indicators(args.key, args.domain, "1d")
@@ -141,6 +292,47 @@ if __name__ == "__main__":
     print("=" * 78)
     if not res.ok:
         print(f"NOT OK -- {res.error}")
+    elif args.state:
+        emas = compute_emas(res.df)
+        states = check_states(emas)
+        last = states.iloc[-1]
+        stage = stack_stage(emas).iloc[-1]
+        name = lambda c: "close" if c == "close" else c.replace("ema_", "") + " EMA"
+        print(f"as of {res.last_trade_date}   close {last['close']:.2f}")
+        print(f"stage           : {'n/a' if pd.isna(stage) else f'{int(stage):+d}'}  (-5..+5)")
+        print("EMAs            : " + "  ".join(
+            f"{p}: {last[f'ema_{p}']:.2f}" for p in DEFAULT_PERIODS))
+        print()
+        for a, b in default_cross_checks():
+            tag = f"{a}_{b}"
+            side = last[f"side_{tag}"]
+            if pd.isna(side):
+                print(f"  {name(a):>8} vs {name(b):<8}: blank (not enough history)")
+                continue
+            word = {1: "above", -1: "below", 0: "equal to"}[int(side)]
+            line = (f"  {name(a):>8} vs {name(b):<8}: {word:<8} held {int(last[f'held_{tag}']):>3} day(s) "
+                    f"since {last[f'since_{tag}']}  margin {last[f'margin_pts_{tag}']:+.2f} "
+                    f"({last[f'margin_pct_{tag}']:+.3f}%)")
+            if f"candle_clear_{tag}" in states.columns:
+                line += f"  whole candle clear: {'yes' if last[f'candle_clear_{tag}'] else 'no'}"
+            print(line)
+    elif args.crosses:
+        crossed = detect_crosses(compute_emas(res.df))
+        events = []
+        for a, b in default_cross_checks():
+            for direction in ("above", "below"):
+                hits = crossed.loc[crossed[f"cross_{direction}_{a}_{b}"], "trade_date"]
+                events += [(str(d), a, direction, b) for d in hits]
+        events.sort(key=lambda e: e[0])
+        print(f"latest {args.crosses} crosses (oldest first):")
+        for d, a, direction, b in events[-args.crosses:]:
+            name = lambda c: "close" if c == "close" else c.replace("ema_", "") + " EMA"
+            tag = ""
+            if (a, b) == (f"ema_{GOLDEN_DEATH_PAIR[0]}", f"ema_{GOLDEN_DEATH_PAIR[1]}"):
+                tag = "  <-- GOLDEN CROSS" if direction == "above" else "  <-- DEATH CROSS"
+            print(f"  {d}  {name(a)} crossed {direction} {name(b)}{tag}")
+        print(f"\ntotal crosses in history: {len(events):,}  "
+              f"(data as of {res.last_trade_date} close)")
     else:
         emas = compute_emas(res.df)
         cols = [f"ema_{p}" for p in DEFAULT_PERIODS]

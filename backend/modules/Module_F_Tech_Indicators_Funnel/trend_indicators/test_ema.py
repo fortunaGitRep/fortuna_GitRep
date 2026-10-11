@@ -20,7 +20,13 @@ import pytest
 from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema import (
     DEFAULT_PERIODS,
     compute_emas,
+    cross_above,
+    cross_below,
+    default_cross_checks,
+    detect_crosses,
     ema_tradingview,
+    stack_stage,
+    check_states,
 )
 
 
@@ -134,3 +140,201 @@ def test_unsorted_bars_raise():
     df = _bars([1.0, 2.0, 3.0]).iloc[::-1].reset_index(drop=True)
     with pytest.raises(ValueError):
         compute_emas(df)
+
+
+# --- Part 2: crosses (TradingView ta.crossover / ta.crossunder) -------------
+
+def _s(values):
+    return pd.Series(values, dtype="float64")
+
+
+def test_cross_above_fires_once_on_the_cross_bar():
+    a = _s([1, 2, 3, 4, 5])
+    b = _s([3, 3, 3, 3, 3])
+    # a: below, below, equal, above, above -> cross on bar 3 only (prev equal counts)
+    assert cross_above(a, b).tolist() == [False, False, False, True, False]
+
+
+def test_equal_today_is_not_a_cross():
+    a = _s([1, 3])
+    b = _s([3, 3])
+    assert cross_above(a, b).tolist() == [False, False]
+
+
+def test_cross_below_mirror():
+    a = _s([5, 4, 3, 2, 1])
+    b = _s([3, 3, 3, 3, 3])
+    assert cross_below(a, b).tolist() == [False, False, False, True, False]
+
+
+def test_blank_on_either_bar_is_no_cross():
+    a = _s([1, 5, 1, 5])
+    b = _s([math.nan, 3, 3, math.nan])
+    assert cross_above(a, b).tolist() == [False, False, False, False]
+    assert cross_below(a, b).tolist() == [False, False, True, False]
+
+
+def test_default_checks_are_the_agreed_12():
+    checks = default_cross_checks()
+    assert len(checks) == 12
+    assert ("close", "ema_5") in checks and ("close", "ema_200") in checks
+    for a, b in [(5, 13), (13, 26), (26, 50), (50, 100), (100, 200), (50, 200)]:
+        assert (f"ema_{a}", f"ema_{b}") in checks
+
+
+def test_detect_crosses_adds_24_columns_and_keeps_input():
+    rng = np.random.default_rng(7)
+    closes = (20000 + rng.normal(0, 150, 600).cumsum()).tolist()
+    emas = compute_emas(_bars(closes))
+    before = emas.copy()
+    out = detect_crosses(emas)
+    new = [c for c in out.columns if c.startswith("cross_")]
+    assert len(new) == 24
+    assert "cross_above_ema_50_ema_200" in new and "cross_below_ema_50_ema_200" in new
+    assert emas.equals(before)
+    assert out[new].dtypes.eq(bool).all()
+
+
+def test_detect_crosses_matches_plain_loop():
+    rng = np.random.default_rng(11)
+    closes = (20000 + rng.normal(0, 150, 800).cumsum()).tolist()
+    out = detect_crosses(compute_emas(_bars(closes)))
+    a, b = out["ema_13"].tolist(), out["ema_26"].tolist()
+    for t in range(1, len(a)):
+        ok = not any(math.isnan(x) for x in (a[t], b[t], a[t - 1], b[t - 1]))
+        exp_up = ok and a[t] > b[t] and a[t - 1] <= b[t - 1]
+        exp_dn = ok and a[t] < b[t] and a[t - 1] >= b[t - 1]
+        assert out["cross_above_ema_13_ema_26"].iloc[t] == exp_up
+        assert out["cross_below_ema_13_ema_26"].iloc[t] == exp_dn
+
+
+def test_golden_cross_on_known_bar():
+    # Hand-built EMA columns: 50 below 200, then above from bar 2.
+    df = pd.DataFrame({"close": [1.0, 1.0, 1.0],
+                       "ema_50": [10.0, 10.0, 12.0],
+                       "ema_200": [11.0, 11.0, 11.0]})
+    out = detect_crosses(df, checks=[("ema_50", "ema_200")])
+    assert out["cross_above_ema_50_ema_200"].tolist() == [False, False, True]
+    assert not out["cross_below_ema_50_ema_200"].any()
+
+
+def test_detect_crosses_without_emas_raises():
+    with pytest.raises(ValueError):
+        detect_crosses(_bars([1.0, 2.0, 3.0]))
+
+
+def test_detect_crosses_unsorted_raises():
+    emas = compute_emas(_bars([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), periods=(2, 3))
+    with pytest.raises(ValueError):
+        detect_crosses(emas.iloc[::-1].reset_index(drop=True),
+                       checks=[("ema_2", "ema_3")])
+
+
+# --- Part 3: stage and states ----------------------------------------------
+
+def _stack_row(e5, e13, e26, e50, e100, e200):
+    return {"ema_5": e5, "ema_13": e13, "ema_26": e26, "ema_50": e50,
+            "ema_100": e100, "ema_200": e200}
+
+
+@pytest.mark.parametrize("row, expected", [
+    (_stack_row(6, 5, 4, 3, 2, 1), 5),                 # full bullish stack
+    (_stack_row(1, 2, 3, 4, 5, 6), -5),                # full bearish stack
+    (_stack_row(5, 4, 6, 7, 8, 9), 1),                 # only 5 above 13 (weakest uptrend)
+    (_stack_row(6, 5, 4, 7, 8, 9), 2),                 # 5>13>26, 26 below 50
+    (_stack_row(4, 5, 3, 2, 1, 0.5), -1),              # pullback: 5<13, but 13>26 stops the count
+    (_stack_row(5, 5, 4, 3, 2, 1), 0),                 # 5 == 13
+    (_stack_row(6, 5, 4, 3, 2, math.nan), 4),          # 200 blank: max +4
+    (_stack_row(6, math.nan, 4, 3, 2, 1), math.nan),   # 13 blank: no stage
+])
+def test_stack_stage(row, expected):
+    got = stack_stage(pd.DataFrame([row])).iloc[0]
+    if math.isnan(expected):
+        assert math.isnan(got)
+    else:
+        assert got == expected
+
+
+def test_stage_missing_columns_raise():
+    with pytest.raises(ValueError):
+        stack_stage(pd.DataFrame({"ema_5": [1.0]}))
+
+
+def _state_frame():
+    # close vs ema_5 on 6 days: below, below, above, above, above, below
+    return pd.DataFrame({
+        "trade_date": ["d1", "d2", "d3", "d4", "d5", "d6"],
+        "close":  [9.0, 9.0, 11.0, 12.0, 13.0, 9.0],
+        "high":   [9.5, 9.5, 11.5, 12.5, 13.5, 10.5],
+        "low":    [8.5, 8.5,  9.5, 10.5, 12.5, 8.5],
+        "ema_5":  [10.0] * 6,
+    })
+
+
+def test_side_held_since():
+    out = check_states(_state_frame(), checks=[("close", "ema_5")])
+    assert out["side_close_ema_5"].tolist() == [-1, -1, 1, 1, 1, -1]
+    assert out["held_close_ema_5"].tolist() == [1, 2, 1, 2, 3, 1]
+    assert out["since_close_ema_5"].tolist() == ["d1", "d1", "d3", "d3", "d3", "d6"]
+
+
+def test_margin_points_and_percent():
+    out = check_states(_state_frame(), checks=[("close", "ema_5")])
+    assert out["margin_pts_close_ema_5"].iloc[3] == pytest.approx(2.0)
+    assert out["margin_pct_close_ema_5"].iloc[3] == pytest.approx(20.0)
+
+
+def test_whole_candle_clear():
+    out = check_states(_state_frame(), checks=[("close", "ema_5")])
+    # d3: above but low 9.5 < 10 -> not clear; d4: low 10.5 > 10 -> clear;
+    # d1: below, high 9.5 < 10 -> clear; d6: below but high 10.5 > 10 -> not clear
+    assert out["candle_clear_close_ema_5"].tolist() == [True, True, False, True, True, False]
+
+
+def test_ema_pairs_have_no_candle_flag():
+    df = pd.DataFrame({"ema_5": [1.0, 3.0], "ema_13": [2.0, 2.0],
+                       "high": [5.0, 5.0], "low": [0.5, 0.5]})
+    out = check_states(df, checks=[("ema_5", "ema_13")])
+    assert "candle_clear_ema_5_ema_13" not in out.columns
+    assert out["held_ema_5_ema_13"].tolist() == [1, 1]
+
+
+def test_blank_values_give_blank_state_and_restart_count():
+    df = pd.DataFrame({"trade_date": ["d1", "d2", "d3", "d4"],
+                       "close": [11.0, 11.0, 11.0, 11.0],
+                       "ema_5": [math.nan, 10.0, 10.0, 10.0]})
+    out = check_states(df, checks=[("close", "ema_5")])
+    assert math.isnan(out["side_close_ema_5"].iloc[0])
+    assert math.isnan(out["held_close_ema_5"].iloc[0])
+    assert out["held_close_ema_5"].tolist()[1:] == [1, 2, 3]
+    assert out["since_close_ema_5"].iloc[3] == "d2"
+
+
+def test_states_keep_input_and_full_default_run():
+    rng = np.random.default_rng(5)
+    closes = (20000 + rng.normal(0, 150, 400).cumsum())
+    bars = _bars(closes.tolist())
+    bars["high"], bars["low"] = closes + 50, closes - 50
+    emas = compute_emas(bars)
+    before = emas.copy()
+    out = check_states(emas)
+    assert emas.equals(before)
+    assert len([c for c in out.columns if c.startswith("held_")]) == 12
+    assert len([c for c in out.columns if c.startswith("candle_clear_")]) == 6
+
+
+def test_held_matches_plain_loop():
+    rng = np.random.default_rng(9)
+    closes = (20000 + rng.normal(0, 150, 500).cumsum()).tolist()
+    out = check_states(compute_emas(_bars(closes)), checks=[("ema_5", "ema_13")])
+    side = out["side_ema_5_ema_13"].tolist()
+    held = out["held_ema_5_ema_13"].tolist()
+    count, prev = 0, None
+    for s, h in zip(side, held):
+        if math.isnan(s):
+            assert math.isnan(h)
+            count, prev = 0, None
+            continue
+        count = count + 1 if s == prev else 1
+        prev = s
+        assert h == count
