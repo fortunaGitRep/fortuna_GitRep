@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
+**Last updated:** 2026-10-11 (indicator OHLCV reader + EMA values built, matched to TradingView). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
 
 ---
 
@@ -602,3 +602,27 @@ Fix: `update_instrument()` now checks `last_success_at` against a cooldown *befo
 - Optional: make the audit skip a "missing day" when weekly volume equals the daily sum (removes the ETF noise).
 - Catalogue `is_active` flag stale for the 9 stocks above.
 - **Next:** indicator spec in baby steps — first open question: which EMA pairs for the crosses.
+
+---
+
+### 2026-10-11 — Indicator phase part 1: indicator OHLCV reader + EMA values (TradingView parity)
+
+**Decided:**
+- **TradingView parity** for every indicator (same formulas/methods), so values equal Ash's charts.
+- **EMA stack** 5 > 13 > 26 > 50 > 100 > 200; crosses = close vs each EMA, stack pairs 5/13, 13/26, 26/50, 50/100, 100/200, plus 50/200 golden/death cross; stage ladder −5..+5. Nifty both directions, stocks cross-above only.
+- **Output = plain-English text + small chart** (TradingView Lightweight Charts). Other TradingView libraries not licensed for personal use; Dhan/Upstox have no charting library.
+- **Pure, reusable indicator functions** — same code for Nifty now and watchlist/options stocks later (best-to-least ranking).
+- **Folders:** `backend/modules/Module_F_Tech_Indicators_Funnel/` with `price_action`, `trend_indicators`, `momentum_oscillators`, `volume_moneyflow`, `volatility_indicators`, `support_resistance_levels`.
+- **Rule:** a file not in the build log / data-flow doc is left untouched; new work goes in a new file (the undocumented `read_ohlcv.py` stays as is).
+
+**Built:**
+- `market_data/upstox/indicator_ohlcv_reader.py` — reads via the documented `ohlcv_store.read_candles()`, applies reader rule 1, never raises, one log line per outcome; D/W/M only. `test_indicator_ohlcv_reader.py` — 13 tests, no R2.
+- `Module_F_Tech_Indicators_Funnel/trend_indicators/ema.py` — `compute_emas()`, TradingView `ta.ema` method (SMA seed), ~4 ms for 6 EMAs on 6,657 bars; `--dates` manual check. `test_ema.py` — 17 tests.
+
+**Verified:** Nifty 50 daily — 6,657 bars (2000-01-03 .. 2026-10-09), 0 bad bars; all six EMAs equal TradingView to the paisa on 11 dates (2022-10 .. 2026-10). An early EMA 200 +0.35 gap was TradingView's short loaded history, not our data — scroll back a few years on TradingView before reading a 200 EMA. All tests pass on Windows / Python 3.11.
+
+**Confirmed:** refreshing during market hours never stores today's partial daily candle (Upstox excludes the current day).
+
+**Deferred:** R2 read timeouts/retries (boto3 defaults); reader rules 2–4 until intraday indicators; per-run memo until the stock scanner.
+
+**Next:** EMA part 2 — crosses (`detect_crosses()` in `ema.py`), then stage, texts, daily Nifty run + alerts, frontend chart.

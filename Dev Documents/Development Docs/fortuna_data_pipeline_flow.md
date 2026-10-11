@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑11 (indicator reader + EMA values built and matched to TradingView §2.11). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -537,6 +537,49 @@ Outputs: `logs/data_audit.log`, `logs/data_audit_summary.txt` (both overwritten 
   pairs for crosses, S&R method, RSI/StochRSI/MACD params) → (3) build module and check one stock
   against Ash's chart → (4) storage decision. Working in baby steps.
 
+### 2.11 Indicator phase — part 1 built: reader + EMA values (2026‑10‑11)
+
+**Decisions**
+- **TradingView parity for every indicator:** same formulas and methods as TradingView, so Fortuna's values
+  equal what Ash sees on his charts. EMA = Pine `ta.ema`: blank for bars 1..n‑1, bar n = SMA of the first
+  n closes, then `α·close + (1−α)·prev`, α = 2/(n+1).
+- **EMA stack:** 5 > 13 > 26 > 50 > 100 > 200. Crosses to watch: close vs each of the 6 EMAs, stack pairs
+  5/13, 13/26, 26/50, 50/100, 100/200, plus the 50/200 golden/death cross. Stage ladder −5..+5
+  (+1 = only 5 above 13, weakest uptrend; +5 = full stack, strongest). Nifty: both directions; stocks:
+  cross‑above only (caller's choice, not the indicator's).
+- **Output for Ash = plain‑English text plus a small chart** (TradingView Lightweight Charts, Apache 2.0,
+  attribution required). Advanced Charts / Trading Platform are not licensed for personal use; widgets
+  use TradingView's own data. Dhan and Upstox offer API SDKs only, no charting library.
+- **Code reuse:** indicator functions are pure (no I/O, nothing instrument‑specific) so the same code runs
+  on Nifty now and on watchlist / options stocks later for best‑to‑least ranking.
+- **Folders:** `backend/modules/Module_F_Tech_Indicators_Funnel/` → `price_action`, `trend_indicators`,
+  `momentum_oscillators`, `volume_moneyflow`, `volatility_indicators`, `support_resistance_levels`.
+- **Undocumented files are left untouched:** the old `read_ohlcv.py` is not in this doc or the build log,
+  so it stays as is; the indicator reader is a new file.
+
+**Built**
+| File | What it does |
+|---|---|
+| `market_data/upstox/indicator_ohlcv_reader.py` | `read_for_indicators(key, domain, timeframe)` — calls the documented `ohlcv_store.read_candles()`, applies reader rule 1, sorts, returns `IndicatorReadResult`. Read‑only, **never raises** (every outcome is ok/not‑ok + plain reason), one log line per outcome (INFO ok / WARNING expected miss / ERROR + traceback). D/W/M only; intraday refused until reader rule 2 is added. |
+| `market_data/upstox/test_indicator_ohlcv_reader.py` | 13 unit tests, no R2 (store read faked). |
+| `Module_F_Tech_Indicators_Funnel/trend_indicators/ema.py` | `compute_emas(df, periods=(5,13,26,50,100,200))` — pure, TradingView method, ~4 ms for 6 EMAs on 6,657 bars. Manual check: `--bars N` or `--dates …`. |
+| `Module_F_Tech_Indicators_Funnel/trend_indicators/test_ema.py` | 17 unit tests incl. hand‑worked example and an independent loop cross‑check. |
+
+**Verified:** Nifty 50 daily reader read 6,657 bars (2000‑01‑03 .. 2026‑10‑09), 0 bad bars. All six EMAs
+equal TradingView to the paisa on 11 dates (2022‑10‑03 .. 2026‑10‑09). A first comparison showed EMA 200
++0.35 — the cause was TradingView: it computes over the history it has loaded, and with a short loaded
+history its 200 EMA had not settled. **When checking a 200 EMA on TradingView, scroll back a few years
+first.** 2020 values differ slightly (EMA 100 −0.17); faded to zero by 2022, no effect on current values.
+
+**Confirmed:** a refresh during market hours never stores today's half‑formed daily candle (Upstox excludes
+the current day), so the latest daily bar is always the last completed session's official close.
+
+**Deferred (with reasons):** R2 read timeouts/retries = boto3 defaults from `r2_client.py`; reader rules 2–4
+until intraday indicators; per‑run memo until the stock scanner reads several timeframes per stock.
+
+**Next (EMA roadmap):** part 2 crosses → part 3 stack stage −5..+5 → part 4 snapshot + plain‑English texts
+→ part 5 daily Nifty run + alerts → part 6 frontend chart + text panel.
+
 ---
 
 ## 2A. News pipeline (BUILT — 2026‑09‑04)
@@ -845,6 +888,14 @@ be re‑fetched later).
 | `backfill_universe_fundamentals_onetime.py` | Tier‑2 one‑time archival orchestrator (auto‑cooldown) |
 | `fetch_universe_instrument_list.py` / `fetch_index_instrument_list.py` | build the catalogues |
 | `instrument_store.py` | catalogue upsert store |
+| `indicator_ohlcv_reader.py` | read side for indicators: `read_for_indicators()` over `read_candles()`, reader rule 1, never raises (§2.11) |
+| `test_indicator_ohlcv_reader.py` | 13 unit tests for the reader, no R2 (§2.11) |
+
+### Indicators (under `backend/modules/Module_F_Tech_Indicators_Funnel/`)
+| File | Role |
+|---|---|
+| `trend_indicators/ema.py` | `compute_emas()` — EMA 5/13/26/50/100/200, TradingView method, pure function (§2.11) |
+| `trend_indicators/test_ema.py` | 17 unit tests for the EMAs (§2.11) |
 
 ### Supabase tables
 | Table | Contents |
@@ -894,6 +945,11 @@ python -m modules.market_data.upstox.test_index_intraday [--days N] [--keys "NSE
 python -m modules.market_data.upstox.audit_ohlcv_data [--scope all]
 python -m modules.market_data.upstox.repair_ohlcv_window --since 2026-08-17 --scope all [--dry-run] [--limit N]
 python -m modules.market_data.upstox.inspect_weekly_bar --keys "NSE_EQ|INE..." --week-start 2026-08-24
+
+# Indicators (§2.11) — read-only
+python -m modules.market_data.upstox.indicator_ohlcv_reader [--key "NSE_INDEX|Nifty 50"] [--domain indices]
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema [--bars N] [--dates YYYY-MM-DD ...]
+python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py modules/Module_F_Tech_Indicators_Funnel/trend_indicators/test_ema.py -v
 ```
 
 `--limit N` = verify on the first N (always do this before a full run).
