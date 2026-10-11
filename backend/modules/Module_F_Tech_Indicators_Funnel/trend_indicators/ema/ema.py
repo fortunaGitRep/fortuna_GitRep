@@ -1,5 +1,5 @@
 """
-modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema.py
+modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/ema.py
 
 EMA calculator.
   Part 1: EMA values (compute_emas).
@@ -262,7 +262,7 @@ def check_states(
 # --- Manual check: Nifty 50 EMAs on the latest bars, to compare with TradingView ---
 
 if __name__ == "__main__":
-    #   python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema
+    #   python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema
     import argparse
     import logging
 

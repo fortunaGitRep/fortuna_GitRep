@@ -1,8 +1,8 @@
 """
-Unit tests for trend_indicators/ema.py. Pure math: no R2, no network, no DB.
+Unit tests for trend_indicators/ema/ema.py. Pure math: no R2, no network, no DB.
 
 Run from backend/:
-    python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/test_ema.py -v
+    python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/test_ema.py -v
 
 Covers: the hand-worked TradingView example, blanks before n bars, too-short
 history, period 1, agreement with an independent plain-loop implementation,
@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema import (
+from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema import (
     DEFAULT_PERIODS,
     compute_emas,
     cross_above,

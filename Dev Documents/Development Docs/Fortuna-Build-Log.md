@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-10-11 (indicator OHLCV reader + EMA values built, matched to TradingView). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
+**Last updated:** 2026-10-11 (indicator OHLCV reader + EMA parts 1–4 built and verified against TradingView; EMA spec doc; frontend for indicators logged as an important open item). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
 
 ---
 
@@ -106,6 +106,7 @@ Thumbs.db
 - [ ] Model string in `ai_gateway.py` (`claude-sonnet-4-5`) not verified against the live API account.
 - [ ] **VIX regime thresholds (25/75/90 percentile) need India-VIX backtesting** — currently sensible defaults, but should be validated/tuned against India VIX's own history before fully trusting the regime bands for live sizing.
 - [ ] **True VIX acceleration flag** — `recent_volatility_stress` is cross-sectional (value unusual recently vs annually), not a time-change. A genuine "VIX rising over N days" flag (multi-day % change) would be a stronger stress signal — future enhancement.
+- [ ] **⚠ IMPORTANT — Frontend for indicators (added 2026-10-11).** Show each indicator's snapshot on the frontend: a small TradingView Lightweight Charts chart (candles + the 6 EMA lines, cross markers) plus the plain-English text panel and all 6 EMA values (today and yesterday). Backend side is ready: `ema_snapshot.build_ema_snapshot()` returns a JSON-safe package (texts, values, stage, 12 check states, alerts). Still needed: an API endpoint returning it, and the React component. Lightweight Charts licence requires the TradingView attribution notice + link on a public page. Must fit the existing unwired frontend (React + Vite + TS, five tabs Inbox/Buy/Exit/Positions/Watchlist on dummy data, `theme.css` teal/coral palette, ~480 px mobile shell, Global Gate UI samples in design phase). Text readability to be refined there (cards, colour for up/down, bold stage).
 - [ ] **Signal engine Stage 5 (`Module_F_Tech_Indicators_Funnel`, ENG-1..11)** — empty placeholder package only. Depends on real Nifty OHLC (now available). Combining Stage 1-4 + Stage 5 = the `Module_F_Foundation_Gate_Funnel` combiner (parent `__init__.py`, currently a placeholder comment).
 
 ---
@@ -626,3 +627,26 @@ Fix: `update_instrument()` now checks `last_success_at` against a cooldown *befo
 **Deferred:** R2 read timeouts/retries (boto3 defaults); reader rules 2–4 until intraday indicators; per-run memo until the stock scanner.
 
 **Next:** EMA part 2 — crosses (`detect_crosses()` in `ema.py`), then stage, texts, daily Nifty run + alerts, frontend chart.
+
+---
+
+### 2026-10-11 (cont'd) — EMA parts 2–4: crosses, stage/states, snapshot texts; EMA spec doc
+
+**Built** (all in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/` — new convention: one folder per indicator):
+- `ema.py` — added `detect_crosses()` (12 checks: close vs each EMA, stack pairs 5/13, 13/26, 26/50, 50/100, 100/200, plus 50/200 golden/death; TradingView `ta.crossover`/`ta.crossunder` rule), `stack_stage()` (−5..+5), `check_states()` (side, days held with cross day = 1, since, margin pts/%, whole-candle-clear for close checks). Manual options `--crosses N`, `--state`.
+- `ema_snapshot.py` — `build_ema_snapshot(key, domain, name, directions)`: one JSON-safe package per instrument per day (close + 6 EMAs today/yesterday, stage + label, 12 states, crosses, alerts, plain-English texts). Never raises. `directions`: `both` (Nifty) / `above` (stocks). Holding lines for crosses 2–5 trading days old; "Bigger trend" line for older ones.
+- Tests: `test_ema.py` 43, `test_ema_snapshot.py` 20 — all pass on Windows.
+- **Spec doc:** `Dev Documents\Development Docs\Fortuna Indicators\EMA.md` — what Fortuna does (not general theory): periods, TradingView-parity method in detail and how it was proven, cross rule, 12 checks, stage table, states, thresholds, snapshot texts, real sample outputs, code map, change log. One such doc per indicator from now on.
+
+**Decided:**
+- **Strong/weak thresholds: none yet.** Researched published confirmation filters (3-day hold, 2–3 % margin, whole candle beyond the line, volume). Fortuna shows the facts (days held, margin %, whole candle clear) and will test thresholds on Nifty's 26-year history later.
+- **Volume dropped** — Upstox sends 0 volume for indices; TradingView's Nifty volume is its own figure. Revisit for stocks.
+- **No indicator fetches data.** Fortuna's refresh button fetches candles first (before 4 pm → yesterday's close, after 4 pm → today's); indicators read the latest stored bar and say which close they are "as of". The planned "part 5 daily run" is dropped for EMA and every future indicator.
+
+**Verified live (data as of 9 Oct 2026):** latest 15 crosses confirmed on Ash's chart; `--state` (stage −5; close above 5 EMA by only +0.08, whole candle not clear; 13<26 since 27 Aug; 26<50 since 7 Sep; death cross since 16 Mar) and the snapshot texts match the chart.
+
+**Open items:**
+- **⚠ IMPORTANT — frontend for indicators** (chart + text panel + 6 EMA values) — logged in the main Open items list above.
+- Build log / data-flow doc now point to the `Fortuna Indicators` spec folder.
+
+**Next:** MACD — research, discuss, spec, then build (same pattern as EMA).

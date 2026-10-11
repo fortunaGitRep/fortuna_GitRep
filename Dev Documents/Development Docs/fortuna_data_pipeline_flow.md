@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑10‑11 (indicator reader + EMA values built and matched to TradingView §2.11). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -577,8 +577,26 @@ the current day), so the latest daily bar is always the last completed session's
 **Deferred (with reasons):** R2 read timeouts/retries = boto3 defaults from `r2_client.py`; reader rules 2–4
 until intraday indicators; per‑run memo until the stock scanner reads several timeframes per stock.
 
-**Next (EMA roadmap):** part 2 crosses → part 3 stack stage −5..+5 → part 4 snapshot + plain‑English texts
-→ part 5 daily Nifty run + alerts → part 6 frontend chart + text panel.
+**Update (same day) — EMA parts 2–4 built; full spec in `Dev Documents\Development Docs\Fortuna Indicators\EMA.md`.**
+- **Folder convention:** one folder per indicator. EMA files moved to `trend_indicators/ema/`
+  (`ema.py`, `ema_snapshot.py`, `test_ema.py`, `test_ema_snapshot.py`).
+- **Part 2 — crosses** (`detect_crosses`): 12 checks — close vs each EMA, stack pairs 5/13, 13/26, 26/50,
+  50/100, 100/200, and 50/200 golden/death. Rule = TradingView `ta.crossover`/`ta.crossunder`
+  (A > B now and A ≤ B before; mirror for below).
+- **Part 3 — stage and states** (`stack_stage`, `check_states`): stage −5..+5; per check side, days held
+  (cross day = 1), since, margin pts/%, whole‑candle‑clear (close checks). **No strong/weak thresholds yet** —
+  facts only; published filters (3‑day hold, 2–3 % margin, whole candle) kept as candidates to test on Nifty.
+  **Volume dropped** (Upstox sends 0 volume for indices; revisit for stocks).
+- **Part 4 — snapshot** (`ema_snapshot.build_ema_snapshot`): one JSON‑safe package per instrument per day
+  (close, 6 EMAs today/yesterday, stage + label, 12 states, crosses, alerts, plain‑English texts);
+  never raises. `directions`: `both` (Nifty) / `above` (stocks). Holding lines for crosses 2–5 days old.
+- **No "daily run" step for indicators:** Fortuna's data‑refresh button fetches candles first (before 4 pm
+  yesterday's close, after 4 pm today's); indicators only read the latest stored bar. Applies to every indicator.
+- **Verified live (data as of 9 Oct 2026):** `--crosses`, `--state` and the snapshot match Ash's chart;
+  63 EMA tests + 13 reader tests pass on Windows.
+
+**Next:** MACD (research → spec → build, same pattern). **Frontend for indicators is an important open
+item** — see the build log.
 
 ---
 
@@ -894,8 +912,11 @@ be re‑fetched later).
 ### Indicators (under `backend/modules/Module_F_Tech_Indicators_Funnel/`)
 | File | Role |
 |---|---|
-| `trend_indicators/ema.py` | `compute_emas()` — EMA 5/13/26/50/100/200, TradingView method, pure function (§2.11) |
-| `trend_indicators/test_ema.py` | 17 unit tests for the EMAs (§2.11) |
+| `trend_indicators/ema/ema.py` | `compute_emas()`, `detect_crosses()`, `stack_stage()`, `check_states()` — TradingView method, pure functions (§2.11) |
+| `trend_indicators/ema/ema_snapshot.py` | `build_ema_snapshot()` — daily package + texts + alerts, never raises (§2.11) |
+| `trend_indicators/ema/test_ema.py`, `test_ema_snapshot.py` | 43 + 20 unit tests (§2.11) |
+
+Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`.
 
 ### Supabase tables
 | Table | Contents |
@@ -948,8 +969,9 @@ python -m modules.market_data.upstox.inspect_weekly_bar --keys "NSE_EQ|INE..." -
 
 # Indicators (§2.11) — read-only
 python -m modules.market_data.upstox.indicator_ohlcv_reader [--key "NSE_INDEX|Nifty 50"] [--domain indices]
-python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema [--bars N] [--dates YYYY-MM-DD ...]
-python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py modules/Module_F_Tech_Indicators_Funnel/trend_indicators/test_ema.py -v
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema [--bars N] [--dates YYYY-MM-DD ...] [--crosses N] [--state]
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema_snapshot [--json] [--directions above]
+python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema -v
 ```
 
 `--limit N` = verify on the first N (always do this before a full run).
