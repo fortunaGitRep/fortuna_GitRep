@@ -5,7 +5,7 @@ formulas, settings, rules, thresholds and outputs Fortuna uses. Other books and 
 different ways; this doc records only what **Fortuna** does. Same layout as `EMA.md`, stored in
 `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 3.1 — 2026‑10‑12 (§0 plain‑English definition; runbook `Fortuna-Indicators-Runbook.md`). v3 — **MACD complete (parts 1–4): values, trend / momentum states, labels, events and
+_Version 3.3 — 2026‑10‑12 (§6.1 higher‑timeframe momentum turns: text, no alert — option c). v3.2 — event list split: `--crosses` / `--turns` / `--events`. v3.1 — §0 plain‑English definition; runbook `Fortuna-Indicators-Runbook.md`. v3 — **MACD complete (parts 1–4): values, trend / momentum states, labels, events and
 texts on all six timeframes, verified against TradingView (tv.dhan) — values and cross dates exact.** Code:
 `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd/`._
 
@@ -275,6 +275,67 @@ The fast view: **MACD vs signal** plus the **histogram**.
 zero, or a momentum turn **to** `below_fading` (bearish fading) or `above_growing` (bullish growing);
 bearish is the mirror.
 
+### 6.1 The event list: crosses and momentum turns kept apart (changed 2026‑10‑12)
+
+**What it was.** `macd --crosses N` listed the latest N events of **three kinds mixed together**: zero‑line
+crosses, signal‑line crosses and momentum turns. Momentum turns (the histogram switching between dark and light
+on the same side of zero) are by far the most frequent — Nifty daily history: **2,389 events, mostly turns**,
+roughly one event every 3 candles; on 5m (75 candles a day) many per session. So "latest 15" was mostly
+"dark red → light red → dark red", and the crosses were pushed off the list. A second issue: `--state` and
+`--crosses` on the same timeframe wrote the same log file, so one run wiped out the other.
+
+**Is it different from TradingView? No.** Every colour change is real and identical to the chart (checked on
+all six timeframes, §10.3). On the chart a shade change is a slightly lighter bar the eye skims past; in a
+text list each became a full line. The problem was presentation, not data.
+
+**What changed (manual check only, `macd.py` `__main__`):**
+
+| Command | Lists | Log (`logs\macd_test_logs\`) |
+|---|---|---|
+| `--crosses N` | zero‑line + signal‑line crosses only | `macd_check_<tf>_crosses.log` |
+| `--turns N` | momentum turns only (every colour change growing ↔ fading) | `macd_check_<tf>_turns.log` |
+| `--events N` | all three kinds together — **exactly the old `--crosses` list** (verified line‑for‑line) | `macd_check_<tf>_events.log` |
+| `--state` | unchanged | `macd_check_<tf>_state.log` |
+| `--bars` / `--dates` | unchanged | `macd_check_<tf>.log` (unchanged name) |
+
+`--state`, `--crosses`, `--turns`, `--events` are one‑at‑a‑time (giving two is refused with a clear message).
+**Not changed:** MACD maths, colours, labels, the snapshot texts and alerts, tests. Nothing is hidden or filtered
+— every turn is still available with `--turns` or `--events`.
+
+**How it affects trading:**
+- Reading **trend changes** (zero crosses) and **momentum changes** (signal crosses) is now one clean list per
+  timeframe — the events that change the label (§7).
+- **Lower‑timeframe colour changes stay fully available** (`--turns`). Ash, 2026‑10‑12: *"sometimes lower
+  timeframe noises are necessary … small observations are stored in my head which come up as intuition while
+  trading."* So 5m / 15m / 60m turns are never dropped.
+- Ash, same day: *"noise in higher timeframes is not needed."* → decided below (option c).
+
+**Real counts after the split (Nifty, data to 9 Oct 2026):** 1D 2,389 events = 696 crosses + 1,693 momentum
+turns (same total as the old list — nothing lost); 5m 22,254 momentum turns (9 Oct 13:50–14:20 the colour changed
+on almost every candle). Even the daily flips back after one day: 27→28 Aug, 24→25 Sep, 8→9 Oct.
+
+**Decision — higher‑timeframe turns in the snapshot (Ash, 2026‑10‑12): option (c).** Options considered:
+(a) keep a "⚡ Momentum turn" text + alert on every timeframe; (b) on 1M/1W/1D count a turn only after the new
+colour holds 2 candles — fewer flip‑flops but the alert arrives **one candle late** (daily: a day late); **(c) on
+1M/1W/1D show the turn on the same candle as TradingView, as a plain text line, but don't raise an alert.**
+Chosen (c): nothing is delayed, it "looks as is like TV", and higher‑timeframe flips stop being shouted as alerts.
+
+| Timeframe | Momentum turn on the latest candle |
+|---|---|
+| 1M / 1W / 1D | text `Momentum turn: …` (no ⚡), kept in `events_today`, **not** in `alerts` |
+| 60m / 15m / 5m | text `⚡ Momentum turn: …` **and** an alert (lower‑timeframe detail kept) |
+
+Zero and signal crosses are alerts on every timeframe, unchanged. Code: `macd_snapshot.py`
+`_TURN_ALERT_TIMEFRAMES = ("60m", "15m", "5m")`.
+
+**Ash on how Fortuna is used (2026‑10‑12):** *"this alerting will not make me trade. all indicators combined
+info and combined decision of where price is standing and is likely to do next so i can take trade on the
+higher probability side is my main goal."* Alerts are pointers; the decision comes from all indicators together.
+
+**How to revert:** list split — run `--events N` for the old combined list, or `git revert` its commit
+(`macd.py`). Option (c) — change `_TURN_ALERT_TIMEFRAMES` back to all six timeframes, or `git revert` its commit
+(`macd_snapshot.py`, `test_macd_snapshot.py`).
+
 ---
 
 ## 7. Combined label (one per timeframe)
@@ -332,7 +393,7 @@ timeframe plus the summary line. It **never raises**: a timeframe that can't be 
 | `STRONG DOWNTREND — bearish momentum fading (1 day), watch for a bullish MACD cross.` (hint only when fading) | always (`MACD n/a (not enough history).` on short history) |
 | `On this candle: MACD crossed below signal, above zero → early top sign (uptrend still in force). Gap -0.08.` | signal cross on the latest candle (filtered by `directions`) |
 | `⚡ Today: MACD crossed above zero → 12 EMA now above 26 EMA (trend turned up).` | zero cross on the latest candle |
-| `⚡ Momentum turn: bearish momentum fading (histogram -28.78 vs -43.97) after 1 day of growing bearish momentum.` | momentum turn on the latest candle |
+| `Momentum turn: bearish momentum fading (histogram -28.78 vs -43.97) after 1 day of growing bearish momentum.` | momentum turn on the latest candle — 1M/1W/1D: text only, no alert; 60m/15m/5m: with ⚡ and an alert (§6.1) |
 | `MACD holding above signal for 5 candles (since 9 Oct 11:15), gap +22.85.` (also for zero) | side 2–**5** candles old (`RECENT_BARS = 5`), began with a cross |
 | `Bigger picture: MACD below zero since 27 Aug (30 days) · MACD below signal since 13 Aug (40 days).` ("(start of data)" if no cross seen) | sides held more than 5 candles |
 | Summary line across timeframes (§7) | once, after all timeframes |
@@ -493,6 +554,7 @@ Nifty 50 · 1D — as of 9 Oct: close 22,520.45
 MACD -360.57 · Signal -331.79 · Histogram -28.78 (light red) [yesterday: MACD -368.57 · Signal -324.60 · Histogram -43.97 (dark red)]
 STRONG DOWNTREND — bearish momentum fading (1 day), watch for a bullish MACD cross.
 ⚡ Momentum turn: bearish momentum fading (histogram -28.78 vs -43.97) after 1 day of growing bearish momentum.
+   (run before option c; from 12 Oct the 1D line has no ⚡ and is not an alert — §6.1)
 Bigger picture: MACD below zero since 27 Aug (30 days) · MACD below signal since 13 Aug (40 days).
 
 Nifty 50 · 60m — as of 9 Oct 15:15 candle: close 22,520.45
@@ -539,10 +601,10 @@ Alerts in that run: 1D momentum turn (bearish fading, counted bullish); 15m sign
   alerts on **candle close**, with an optional "forming candle" preview (TradingView recalculates on the
   forming candle, so its signals can appear and vanish). Brokers' forming‑candle values differ slightly
   (§3.6), so live parity must be judged on closed candles.
-- **Event list is flooded by momentum turns** (daily history: 2,389 events, mostly dark‑red/light‑red
-  flips). Proposed, not yet built: `--crosses N` = zero + signal crosses only, `--turns N` = momentum
-  turns; one log per mode (`macd_check_<tf>_state.log`, `…_crosses.log`) so runs don't overwrite each
-  other. Also to test later: a minimum hold before a momentum turn is texted.
+- ~~Event list flooded by momentum turns~~ — **done 2026‑10‑12** (§6.1): `--crosses` / `--turns` / `--events`,
+  one log per mode; higher‑timeframe turns = text, no alert (option c). Lower timeframes keep every turn.
+- **Combined view across indicators** (Ash's main goal): one read of where price stands and what it is likely to
+  do next from EMA + MACD + ADX together, to trade the higher‑probability side.
 - **Frontend:** the snapshot package (§9) is ready for the indicators frontend (chart + texts), which is
   an important open item in the build log.
 - **File logging for the reader's manual check** (`indicator_ohlcv_reader`) — still screen only. `ema` and
@@ -572,7 +634,7 @@ All MACD files in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicat
 | `macd.py` → `trend_macd(df)` | built | zero‑line side / held / since / from_start + zero crosses (§5) |
 | `macd.py` → `momentum_macd(df)` | built | signal side / held / since / gap, signal crosses with zone, histogram state held, momentum turns (§6) |
 | `macd.py` → `macd_label(df)`, `macd_all(df)` | built | §7 label; all of the above in one call |
-| `macd.py` → `__main__` `--state`, `--crosses N`, `--timeframe all` | built | state of the latest candle; latest N events; all six timeframes + summary table in one run (`macd_check_all.log`) |
+| `macd.py` → `__main__` `--state`, `--crosses N`, `--turns N`, `--events N`, `--timeframe all` | built | state of the latest candle; latest N crosses / momentum turns / both (§6.1); all six timeframes + summary in one run. Logs: `macd_check_<tf>.log` (bars/dates), `macd_check_<tf>_<mode>.log` (state/crosses/turns/events), `<tf>` = `all` for all six |
 | `macd_snapshot.py` → `snapshot_from_bars(bars, name, timeframe, directions)` | built | pure: one timeframe's package + texts (§9) |
 | `macd_snapshot.py` → `summary_line(snapshots)` | built | one line across timeframes |
 | `macd_snapshot.py` → `build_macd_snapshot(key, name, timeframes, directions)` | built | reads each timeframe, never raises → `MacdSnapshotResult(ok, snapshots, errors, summary)`; manual check writes `logs/macd_test_logs/macd_snapshot.log` |
@@ -592,7 +654,9 @@ python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --t
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --timeframe 15m --bars 3
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --timeframe 5m --bars 3
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --state [--timeframe 15m]
-python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --crosses 15 [--timeframe 1d]
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --crosses 15 [--timeframe 1d]    # zero + signal crosses
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --turns 15 [--timeframe 5m]      # momentum turns (colour changes)
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --events 15                      # both together (old --crosses list)
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --timeframe all --state     # where we stand on all six
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot [--timeframes 1d 60m] [--directions above] [--json]
 python -m modules.market_data.upstox.indicator_ohlcv_reader --domain universe_intraday --timeframe 5m
@@ -609,7 +673,10 @@ a live check passes because Fortuna's number equals the chart's number for the s
 
 ### 14.1 Unit tests
 
-**`test_macd.py` — 39 tests and `test_macd_snapshot.py` — 21 tests: 60 passing on Windows, 2026‑10‑12**
+**`test_macd.py` — 39 tests and `test_macd_snapshot.py` — 27 tests (21 + 6 for option c, §6.1): 66 expected**
+(60 passing on Windows 2026‑10‑12 before option c; the 6 new ones: `test_higher_timeframe_turn_is_text_not_alert`
+×3 — 1M/1W/1D turn is a plain text and not an alert; `test_intraday_turn_is_alert` ×3 — 60m/15m/5m turn has ⚡
+and an alert; `test_momentum_turn_text` now expects no ⚡ on 1D.)
 (log `logs\macd_test_logs\test_macd.log`). Part 2 tests (21):
 
 | Test | What is checked | Why it passes (expected value comes from) |
@@ -696,3 +763,5 @@ Part 4 tests (21, `test_macd_snapshot.py`):
 | 2026‑10‑12 | v2.1 — §14 testing and verification record: every unit test (MACD 21, reader 19) with what it checks and where the expected value comes from; live verification; known discrepancies. `conftest.py` now logs only this folder's tests. |
 | 2026‑10‑12 | v3 — parts 3–4 built: `trend_macd`, `momentum_macd`, `macd_label`, `macd_all`, `--state` / `--crosses` / `--timeframe all`, `macd_snapshot.py` (texts per timeframe + summary line, never raises). 15m discrepancy closed (exact on re‑read) → all six timeframes exact; 9 cross dates checked on the chart (§10.4); real state, texts and summary recorded (§10.5, §10.6); tests 60 (§14.1). Open: split crosses vs momentum turns in the event list; frontend. |
 | 2026‑10‑12 | v3.1 — §0 "What MACD is, how it works, how to read it" (three lines, histogram colours, trend vs momentum, strengths/weaknesses); code‑map test count corrected (`test_macd.py` 39). Runbook: `Fortuna-Indicators-Runbook.md`. Noted: `macd_snapshot` reads D/W/M from `indices` only — stocks need a domain option (open item). |
+| 2026‑10‑12 | v3.2 — event list split (Ash approved): `--crosses N` = zero + signal crosses, new `--turns N` = momentum turns, new `--events N` = the old combined list (verified identical); one log per mode (`macd_check_<tf>_<mode>.log`); modes mutually exclusive. Maths, colours, labels, snapshot, tests unchanged. §6.1 records what it was, the trading effect, Ash's view (keep lower‑timeframe turns; higher‑timeframe noise not needed — open decision), how to revert. |
+| 2026‑10‑12 | v3.3 — option (c) chosen by Ash: momentum turns on 1M/1W/1D shown on the same candle as TradingView as a plain text (no ⚡), not an alert; 60m/15m/5m unchanged (⚡ + alert). `macd_snapshot._TURN_ALERT_TIMEFRAMES`; 6 new tests (66). Real counts after the split recorded; Ash's note that alerts are pointers and decisions come from all indicators combined. |

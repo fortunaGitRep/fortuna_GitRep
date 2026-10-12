@@ -111,8 +111,24 @@ def test_zero_cross_text():
 
 def test_momentum_turn_text():
     snap = _first_bar_where(lambda s: _has(s, "momentum_turn", to="above_fading"))
-    line = [x for x in snap["texts"] if x.startswith("⚡ Momentum turn")][0]
+    line = [x for x in snap["texts"] if x.startswith("Momentum turn")][0]
     assert "bullish momentum fading" in line and "of growing bullish momentum" in line
+
+
+@pytest.mark.parametrize("tf", ["1mo", "1w", "1d"])
+def test_higher_timeframe_turn_is_text_not_alert(tf):
+    # Ash 2026-10-12, option c: same candle as TradingView, shown as text, no alert.
+    snap = _first_bar_where(lambda s: _has(s, "momentum_turn"), tf=tf)
+    assert any(x.startswith("Momentum turn: ") for x in snap["texts"])
+    assert not any(x.startswith("⚡ Momentum turn") for x in snap["texts"])
+    assert not any(a["type"] == "momentum_turn" for a in snap["alerts"])
+
+
+@pytest.mark.parametrize("tf", ["60m", "15m", "5m"])
+def test_intraday_turn_is_alert(tf):
+    snap = _first_bar_where(lambda s: _has(s, "momentum_turn"), tf=tf)
+    assert any(x.startswith("⚡ Momentum turn: ") for x in snap["texts"])
+    assert any(a["type"] == "momentum_turn" and a["timeframe"] == tf for a in snap["alerts"])
 
 
 def test_directions_above_hides_bearish_events():

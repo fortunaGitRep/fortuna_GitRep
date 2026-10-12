@@ -26,6 +26,11 @@ filters which events become texts / alerts; states and labels are always include
 Bullish events: MACD crosses above signal or zero; momentum turns to "bearish
 fading" or "bullish growing". Bearish events are the mirror.
 
+Momentum turns on 1M / 1W / 1D (Ash, 2026-10-12, option c): reported on the same candle
+as TradingView's colour change, as a plain text line and in events_today, but NOT raised
+as an alert -- on higher timeframes the colour often flips back the next candle.
+On 60m / 15m / 5m a turn is still a text (with ⚡) and an alert. MACD.md section 6.1.
+
 Data date: "as of" the latest stored candle of each timeframe. The latest weekly /
 monthly candle is the running week / month ("week to date" / "month to date").
 Indicators never fetch data -- Fortuna's refresh step does.
@@ -79,6 +84,7 @@ _ZONE_MEANING = {
     ("below", "at_zero"): "at the zero line",
 }
 _BULLISH_TURN = {"below_fading", "above_growing"}           # turn *to* these = bullish
+_TURN_ALERT_TIMEFRAMES = ("60m", "15m", "5m")   # momentum turns alert only here (MACD.md 6.1)
 _BEFORE = {"above_growing": "growing bullish", "above_fading": "fading bullish",
            "below_growing": "growing bearish", "below_fading": "fading bearish"}
 
@@ -209,7 +215,8 @@ def snapshot_from_bars(
         events.append({"type": "momentum_turn", "from": prev["hist_state"], "to": hist_state,
                        "bullish": hist_state in _BULLISH_TURN})
     shown = [e for e in events if e["bullish"] or not bullish_only]
-    alerts = [{"timeframe": tf, **e} for e in shown]
+    alerts = [{"timeframe": tf, **e} for e in shown
+              if e["type"] != "momentum_turn" or tf in _TURN_ALERT_TIMEFRAMES]
 
     # -- last events in history (for the record / frontend) -----------------------------
     def last(col: str) -> Optional[str]:
@@ -259,7 +266,8 @@ def snapshot_from_bars(
                          f"{e['direction']} 26 EMA (trend turned {way}).")
         else:
             prev_held = _int(y["hist_state_held"]) or 0
-            texts.append(f"⚡ Momentum turn: {_MOMENTUM[e['to']]} "
+            flag = "⚡ " if tf in _TURN_ALERT_TIMEFRAMES else ""
+            texts.append(f"{flag}Momentum turn: {_MOMENTUM[e['to']]} "
                          f"(histogram {_p(today['histogram'])} vs {_p(prev['histogram'])}) "
                          f"after {_units(prev_held, tf)} of {_BEFORE[e['from']]} momentum.")
 

@@ -307,10 +307,13 @@ if __name__ == "__main__":
     #   ... macd --dates 2026-10-07 2026-10-08 2026-10-09
     #   ... macd --timeframe 60m --dates 2026-10-09 --ohlc     (candles + MACD)
     #   ... macd --state [--timeframe 15m]                       (where we stand now)
-    #   ... macd --crosses 15 [--timeframe 1d]                   (latest events)
+    #   ... macd --crosses 15 [--timeframe 1d]   (latest zero + signal crosses)
+    #   ... macd --turns 15 [--timeframe 5m]     (latest momentum turns = histogram colour changes)
+    #   ... macd --events 15                     (all three kinds together, as before 2026-10-12)
     #   ... macd --timeframe all --state     (where we stand on 1M, 1W, 1D, 60m, 15m, 5m)
-    # Output goes to the screen AND to logs/macd_test_logs/macd_check_<timeframe>.log
-    # (overwritten each run, same pattern as the OHLCV runners).
+    # Output goes to the screen AND to one log per timeframe and mode, overwritten each run:
+    #   logs/macd_test_logs/macd_check_<timeframe>.log          (--bars / --dates)
+    #   logs/macd_test_logs/macd_check_<timeframe>_<mode>.log   (mode = state, crosses, turns, events)
     import argparse
     import logging
     from pathlib import Path
@@ -330,17 +333,27 @@ if __name__ == "__main__":
                         help="print all bars on these trade dates instead of the latest bars")
     parser.add_argument("--ohlc", action="store_true",
                         help="also print open/high/low (to compare candles with TradingView)")
-    parser.add_argument("--state", action="store_true",
-                        help="print trend / momentum state and label for the latest candle")
-    parser.add_argument("--crosses", type=int, metavar="N",
-                        help="print the latest N events (zero crosses, signal crosses, "
-                             "momentum turns)")
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--state", action="store_true",
+                            help="print trend / momentum state and label for the latest candle")
+    mode_group.add_argument("--crosses", type=int, metavar="N",
+                            help="print the latest N crosses (zero-line and signal-line)")
+    mode_group.add_argument("--turns", type=int, metavar="N",
+                            help="print the latest N momentum turns (histogram colour changes "
+                                 "growing <-> fading on the same side of zero)")
+    mode_group.add_argument("--events", type=int, metavar="N",
+                            help="print the latest N events of all three kinds together "
+                                 "(the list --crosses printed before 2026-10-12)")
     args = parser.parse_args()
+    mode = ("state" if args.state else "crosses" if args.crosses else
+            "turns" if args.turns else "events" if args.events else None)
+    n_events = args.crosses or args.turns or args.events
     timeframes = (["1mo", "1w", "1d", "60m", "15m", "5m"] if args.timeframe == "all"
                   else [args.timeframe])
 
     load_dotenv()
-    log_path = Path("logs") / "macd_test_logs" / f"macd_check_{args.timeframe}.log"
+    log_path = (Path("logs") / "macd_test_logs"
+                / f"macd_check_{args.timeframe}{'_' + mode if mode else ''}.log")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
@@ -352,7 +365,7 @@ if __name__ == "__main__":
     log.info("command: macd --timeframe %s --domain %s --key %s %s", args.timeframe,
              args.domain or "default", args.key,
              "--state" if args.state else
-             f"--crosses {args.crosses}" if args.crosses else
+             f"--{mode} {n_events}" if n_events else
              (f"--dates {' '.join(args.dates)}" if args.dates else f"--bars {args.bars}")
              + (" --ohlc" if args.ohlc else ""))
 
@@ -418,31 +431,40 @@ if __name__ == "__main__":
             log.info(last_event(m["signal_cross_above"], "last signal cross above"))
             log.info(last_event(m["signal_cross_below"], "last signal cross below"))
             log.info(last_event(m["momentum_turn"], "last momentum turn"))
-        elif args.crosses:
+        elif n_events:
             m = macd_all(res.df)
+            want_crosses = mode in ("crosses", "events")
+            want_turns = mode in ("turns", "events")
+            mask = pd.Series(False, index=m.index)
+            if want_crosses:
+                mask |= (m["zero_cross_above"] | m["zero_cross_below"]
+                         | m["signal_cross_above"] | m["signal_cross_below"])
+            if want_turns:
+                mask |= m["momentum_turn"].astype(bool)
             events = []
-            for _, r in m.loc[m["zero_cross_above"] | m["zero_cross_below"]
-                              | m["signal_cross_above"] | m["signal_cross_below"]
-                              | m["momentum_turn"]].iterrows():
+            for _, r in m.loc[mask].iterrows():
                 when = when_of(r["ts"])
-                if r["zero_cross_above"]:
+                if want_crosses and r["zero_cross_above"]:
                     events.append((r["ts"], f"{when}  MACD crossed ABOVE zero (12 EMA above 26 EMA)"))
-                if r["zero_cross_below"]:
+                if want_crosses and r["zero_cross_below"]:
                     events.append((r["ts"], f"{when}  MACD crossed BELOW zero (12 EMA below 26 EMA)"))
-                if r["signal_cross_above"]:
+                if want_crosses and r["signal_cross_above"]:
                     events.append((r["ts"], f"{when}  MACD crossed ABOVE signal, "
                                             f"{r['signal_cross_zone'].replace('_', ' ')}"))
-                if r["signal_cross_below"]:
+                if want_crosses and r["signal_cross_below"]:
                     events.append((r["ts"], f"{when}  MACD crossed BELOW signal, "
                                             f"{r['signal_cross_zone'].replace('_', ' ')}"))
-                if r["momentum_turn"]:
+                if want_turns and r["momentum_turn"]:
                     events.append((r["ts"], f"{when}  momentum turn: histogram now "
                                             f"{r['macd_hist_state'].replace('_', ' ')} "
                                             f"({HIST_COLOUR[r['macd_hist_state']]})"))
-            log.info("latest %d events (oldest first):", args.crosses)
-            for _, text in events[-args.crosses:]:
+            what = {"crosses": "crosses (zero + signal)", "turns": "momentum turns",
+                    "events": "events (crosses + momentum turns)"}[mode]
+            log.info("latest %d %s (oldest first):", n_events, what)
+            for _, text in events[-n_events:]:
                 log.info("  %s", text)
-            log.info("total events in history: %s  (data as of %s)", f"{len(events):,}", res.last_ts)
+            log.info("total %s in history: %s  (data as of %s)", what, f"{len(events):,}",
+                     res.last_ts)
         else:
             m = compute_macd(res.df)
             if args.dates:

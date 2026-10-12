@@ -739,3 +739,19 @@ Ash: the docs must let him run and check everything without Claude, and must exp
 **Found while writing:** `macd_snapshot` and `adx_snapshot` read 1d/1w/1mo from `indices` only, so they work for Nifty but not yet for stocks (manual checks do, via `--domain universe`). Open item — add a domain option with the watchlist work.
 
 **Next:** Ash to commit ADX + docs.
+
+---
+
+### 2026-10-12 (cont'd) — MACD event list split (crosses vs momentum turns)
+
+**Why:** `macd --crosses N` mixed zero crosses, signal crosses and momentum turns; turns (histogram dark ↔ light) are most of the 2,389 daily events, so the latest-N list was mostly colour flips and the crosses were pushed out. Not a TradingView difference — colours match the chart; it was presentation. `--state` and `--crosses` also overwrote each other's log.
+
+**Ash:** approved; "sometimes lower timeframe noises are necessary … small observations … come up as intuition while trading" → lower-timeframe turns always kept; "noise in higher timeframes is not needed" → open decision (below). Must be revertible.
+
+**Built** (`macd.py` `__main__` only): `--crosses N` = zero + signal crosses; `--turns N` = momentum turns; `--events N` = old combined list (verified line-for-line identical); modes mutually exclusive; one log per mode `macd_check_<tf>_<mode>.log` (`--bars/--dates` keep `macd_check_<tf>.log`). Maths, colours, labels, snapshot, tests untouched. Revert: `--events`, or `git revert` the commit.
+
+**Verified (Ash's logs):** 1D 2,389 events = 696 crosses + 1,693 turns (total unchanged); 1D crosses list Feb–Aug 2026 incl. the chart-checked 13 Aug / 27 Aug; 5m 22,254 turns.
+
+**Decided — option (c) (Ash):** momentum turns on 1M/1W/1D appear on the same candle as TradingView as plain text, no alert; 60m/15m/5m keep ⚡ + alert. Rejected (b) because it delays the alert by a candle. Built in `macd_snapshot.py` (`_TURN_ALERT_TIMEFRAMES`), 6 new tests → 66 MACD tests. Ash: alerts won't make him trade; the goal is the combined read of all indicators to trade the higher-probability side → logged as an open item. Docs: `MACD.md` v3.3 §6.1, runbook v1.1.
+
+**Next:** Ash to commit — two commits (list split; option c) so each can be reverted alone.

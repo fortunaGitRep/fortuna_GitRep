@@ -648,7 +648,7 @@ the wrong candle (MACD.md §3.5). 19 reader + 21 MACD tests pass on Windows; EMA
   package per timeframe (TradingView numbers, label, states, events, alerts, plain‑English texts) plus a
   summary line; never raises (a failed timeframe → None + reason, others still built).
 - **Verified:** 9 cross dates across 1M/1W/1D/60m/15m/5m fall on the chart's own candle (tv.dhan); the 15m
-  value gap closed on re‑read (exact). Tests: 60 MACD (39 + 21) pass on Windows.
+  value gap closed on re‑read (exact). Tests: 60 MACD (39 + 21) pass on Windows; 66 after the 2026‑10‑12 option‑(c) change (higher‑timeframe momentum turns = text, no alert, `MACD.md` §6.1).
 - **Open:** event list flooded by momentum turns (split `--crosses` / `--turns` proposed); frontend.
 
 ### 2.13 Indicator phase — ADX / DMI (2026‑10‑12)
@@ -981,7 +981,7 @@ be re‑fetched later).
 | `trend_indicators/ema/ema_snapshot.py` | `build_ema_snapshot()` — daily package + texts + alerts, never raises (§2.11) |
 | `trend_indicators/ema/test_ema.py`, `test_ema_snapshot.py` | 43 + 20 unit tests (§2.11) |
 | `trend_indicators/ema/conftest.py` | pytest results → `logs/ema_test_logs/test_ema.log` (2026‑10‑12) |
-| `trend_indicators/macd/macd.py` | `compute_macd()`, `hist_states()`, `trend_macd()`, `momentum_macd()`, `macd_label()`, `macd_all()` — TradingView MACD 12/26/9, any timeframe; manual check `--timeframe [all] --bars --dates --ohlc --state --crosses`, logs to `logs/macd_test_logs/` (§2.12) |
+| `trend_indicators/macd/macd.py` | `compute_macd()`, `hist_states()`, `trend_macd()`, `momentum_macd()`, `macd_label()`, `macd_all()` — TradingView MACD 12/26/9, any timeframe; manual check `--timeframe [all] --bars --dates --ohlc --state --crosses --turns --events`, logs to `logs/macd_test_logs/` (§2.12; crosses vs turns split 2026‑10‑12, `MACD.md` §6.1) |
 | `trend_indicators/macd/test_macd.py` | 39 unit tests (§2.12) |
 | `trend_indicators/macd/macd_snapshot.py` | `build_macd_snapshot()` — per‑timeframe package + texts + alerts + summary line, never raises (§2.12) |
 | `trend_indicators/macd/test_macd_snapshot.py` | 21 unit tests (§2.12) |
@@ -993,7 +993,7 @@ be re‑fetched later).
 Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`.
 
 Logs (under `backend/logs/`, git‑ignored by `*.log`), overwritten each run, first line = the command:
-MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_all.log`, `macd_snapshot.log`, `test_macd.log`); EMA → `logs/ema_test_logs/`
+MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_<timeframe>_<state|crosses|turns|events>.log`, `macd_snapshot.log`, `test_macd.log`); EMA → `logs/ema_test_logs/`
 (`ema_check.log`, `ema_snapshot.log`, `test_ema.log`); ADX → `logs/adx_test_logs/` (`adx_check_<timeframe>.log`,
 `adx_check_all.log`, `adx_snapshot.log`, `test_adx.log`). The reader's own check still prints to screen only.
 Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14).
@@ -1056,7 +1056,7 @@ python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema_snaps
 python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema -v
 
 # MACD (§2.12) — read-only; output also written to logs/macd_test_logs/
-python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd [--timeframe 1d|1w|1mo|5m|15m|60m|all] [--bars N] [--dates YYYY-MM-DD ...] [--ohlc] [--state] [--crosses N]
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd [--timeframe 1d|1w|1mo|5m|15m|60m|all] [--bars N] [--dates YYYY-MM-DD ...] [--ohlc] [--state | --crosses N | --turns N | --events N]
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --timeframe all --state      # where we stand on all six
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot [--timeframes ...] [--directions above] [--json]
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd -v
