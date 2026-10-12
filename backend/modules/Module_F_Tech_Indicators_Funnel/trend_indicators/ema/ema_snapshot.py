@@ -314,9 +314,32 @@ if __name__ == "__main__":
 
     from dotenv import load_dotenv
 
+
+    # Output goes to the screen AND to logs/ema_test_logs/ema_snapshot.log (overwritten each run):
+    # everything printed and every log line is copied into the file.
+    import sys
+    from pathlib import Path
+
+    class _Tee:
+        def __init__(self, *streams):
+            self.streams = streams
+        def write(self, text):
+            for st in self.streams:
+                st.write(text)
+        def flush(self):
+            for st in self.streams:
+                st.flush()
+
+    _log_path = Path("logs") / "ema_test_logs" / "ema_snapshot.log"
+    _log_path.parent.mkdir(parents=True, exist_ok=True)
+    _log_file = open(_log_path, "w", encoding="utf-8")
+    sys.stdout = _Tee(sys.__stdout__, _log_file)
+    print("command: " + " ".join(sys.argv[1:]) if sys.argv[1:] else "command: (defaults)")
+
     load_dotenv()
     logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+                        handlers=[logging.StreamHandler(sys.stdout)])
 
     parser = argparse.ArgumentParser(description="Build the EMA snapshot (read-only).")
     parser.add_argument("--key", default="NSE_INDEX|Nifty 50")
@@ -337,3 +360,4 @@ if __name__ == "__main__":
         if args.json:
             print("\n" + json.dumps(res.snapshot, indent=2, ensure_ascii=False))
     print("=" * 78 + "\n")
+    print(f"log written to {_log_path}")

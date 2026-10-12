@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑12 (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -502,11 +502,16 @@ Outputs: `logs/data_audit.log`, `logs/data_audit_summary.txt` (both overwritten 
 **Reader rules — apply whenever reading OHLCV for indicators**
 1. Drop bars with non‑positive prices.
 2. Drop Nifty 50 intraday bars starting at/after 15:30 (92 days, 2022‑03‑24 .. 2025‑05‑21).
+   **Built 2026‑10‑11 (§2.12):** only on days that also have regular‑session bars — 89 days / 94 bars on
+   5m and 15m; the other 3 of the 92 are Muhurat evenings (all bars after 15:30), kept per rule 3.
 3. Treat special sessions (Muhurat evenings, 2024 Saturday sessions, Sunday budget day) as short days, not gaps.
+   (No code needed — indicators count candles.)
 4. For signals use the official daily candle once published, not the last intraday close (they differ by up to ~4.5%).
 
 **Known conventions**
 - Weekly bars are dated the Monday of the week; monthly bars the 1st of the month.
+- The latest weekly / monthly bar is the **running** week / month (e.g. on 9 Oct 2026 the Oct bar = 1–9 Oct).
+  Indicator texts must call it "week to date" / "month to date" (§2.12).
 - Upstox never returns the current day's candle; index volume is always 0.
 - Upstox daily candles are NOT adjusted for demergers/splits/bonuses.
 
@@ -597,6 +602,54 @@ until intraday indicators; per‑run memo until the stock scanner reads several 
 
 **Next:** MACD (research → spec → build, same pattern). **Frontend for indicators is an important open
 item** — see the build log.
+
+### 2.12 Indicator phase — MACD parts 1–2: intraday reader + MACD values (2026‑10‑11 / 12)
+
+Full spec and verification record: `Dev Documents\Development Docs\Fortuna Indicators\MACD.md`.
+
+**Decisions**
+- **MACD = TradingView defaults:** 12 / 26 / close / 9, EMA oscillator, EMA signal (confirmed from Ash's
+  settings dialog). MACD = EMA12 − EMA26 (bar 26 on); signal = EMA9 of MACD seeded from the first 9 MACD
+  values (bar 34 on); histogram = MACD − signal; 4 TradingView histogram colours copied exactly.
+- **Display rule:** everything TradingView shows, Fortuna shows; extras (PPO %, labels, texts) are added on
+  top, never replace a TradingView number.
+- **Timeframes:** 1M, 1W, 1D, 60m, 15m, 5m with the same code (periods = candles). 2h/4h = open item
+  (resample from 60m). Live / intraday alerting = open item (Upstox historical API has no current day).
+- **Folder:** `trend_indicators/macd/`; functions to come: `trend_macd` (MACD vs zero) and
+  `momentum_macd` (MACD vs signal + histogram), combined label. Divergence deferred.
+- **Reference charts:** tv.dhan.co for Nifty, tv.upstox.com / pro.upstox.com for stocks — broker‑hosted
+  TradingView charts on each broker's own data (not tradingview.com). Parity is judged on completed candles.
+- **Logging:** every MACD command writes its output to the screen **and** to `logs/macd_test_logs/`
+  (overwritten per run) so nothing has to be copied from the terminal. Same pattern to be applied to the
+  reader / ema / ema_snapshot checks later.
+
+**Built**
+| File | What it does |
+|---|---|
+| `market_data/upstox/indicator_ohlcv_reader.py` | now also reads **5m / 15m / 60m** (domain `universe_intraday`); **reader rule 2** drops bars starting at/after 15:30 IST on days that also have regular bars (Muhurat evenings kept); result adds `rows_dropped_after_close`, `days_after_close`, `last_ts`; wrong‑domain hint; 2h/4h refused. Still read‑only and never raises. |
+| `market_data/upstox/test_indicator_ohlcv_reader.py` | 19 tests (was 13): rule 2 drop + Muhurat kept, fixed‑offset/naive timestamps, daily untouched, wrong‑domain hint, bad timestamps → not ok, rule‑2 log line. |
+| `trend_indicators/macd/macd.py` | `compute_macd()` (macd, macd_signal, macd_hist, macd_hist_state, ppo), `hist_states()`; reuses `ema.ema_tradingview`. Manual check `--timeframe --bars --dates --ohlc` → screen + `logs/macd_test_logs/macd_check_<tf>.log`. |
+| `trend_indicators/macd/test_macd.py` | 21 tests (Pine reference loop, seeds, colours, Ash's 9 Oct values, PPO, short history, validation). |
+| `trend_indicators/macd/conftest.py` | writes pytest results to `logs/macd_test_logs/test_macd.log`. |
+
+**Verified (data as of 9 Oct 2026):** reader — 5m 88,449 bars and 15m 29,455 bars after dropping 94 bars on
+89 days each, 60m 8,249 bars (none dropped); the 3 evening‑only days kept are exactly the Muhurat sessions
+2022‑10‑24, 2023‑11‑12, 2024‑11‑01. MACD — 1D (7/8/9 Oct 2026 and 9 Oct 2020), 1W (week of 5 Oct), 1M (Sep 2026),
+60m (9 Oct 09:15 and 15:15), 5m (9 Oct 15:15/15:20/15:25) equal TradingView to the paisa; 15m 15:15 within
+0.02 on a first read, exact on re‑read (12 Oct). Upstox candles equal the O/H/L/C on tv.dhan, tv.upstox and pro.upstox. Every gap
+seen on the way was TradingView's loaded history, a live price in the running month, or the crosshair on
+the wrong candle (MACD.md §3.5). 19 reader + 21 MACD tests pass on Windows; EMA's 63 tests pass against the new reader in the dev copy (not yet re‑run on Windows).
+
+**Update (same day) — MACD parts 3–4 built; MACD complete.**
+- **Part 3** (`macd.py`): `trend_macd` (MACD vs zero), `momentum_macd` (MACD vs signal + histogram: signal
+  crosses tagged below/above/at zero, colour held, momentum turns), `macd_label`, `macd_all`. Manual check
+  `--state`, `--crosses N`, `--timeframe all` (all six timeframes + summary table).
+- **Part 4** (`macd_snapshot.py`): `build_macd_snapshot(key, name, timeframes, directions)` — one JSON‑safe
+  package per timeframe (TradingView numbers, label, states, events, alerts, plain‑English texts) plus a
+  summary line; never raises (a failed timeframe → None + reason, others still built).
+- **Verified:** 9 cross dates across 1M/1W/1D/60m/15m/5m fall on the chart's own candle (tv.dhan); the 15m
+  value gap closed on re‑read (exact). Tests: 60 MACD (39 + 21) pass on Windows.
+- **Open:** event list flooded by momentum turns (split `--crosses` / `--turns` proposed); frontend.
 
 ---
 
@@ -906,8 +959,8 @@ be re‑fetched later).
 | `backfill_universe_fundamentals_onetime.py` | Tier‑2 one‑time archival orchestrator (auto‑cooldown) |
 | `fetch_universe_instrument_list.py` / `fetch_index_instrument_list.py` | build the catalogues |
 | `instrument_store.py` | catalogue upsert store |
-| `indicator_ohlcv_reader.py` | read side for indicators: `read_for_indicators()` over `read_candles()`, reader rule 1, never raises (§2.11) |
-| `test_indicator_ohlcv_reader.py` | 13 unit tests for the reader, no R2 (§2.11) |
+| `indicator_ohlcv_reader.py` | read side for indicators: `read_for_indicators()` over `read_candles()`; 1d/1w/1mo + 5m/15m/60m; reader rules 1–2; never raises (§2.11, §2.12) |
+| `test_indicator_ohlcv_reader.py` | 19 unit tests for the reader, no R2 (§2.11, §2.12) |
 
 ### Indicators (under `backend/modules/Module_F_Tech_Indicators_Funnel/`)
 | File | Role |
@@ -915,8 +968,19 @@ be re‑fetched later).
 | `trend_indicators/ema/ema.py` | `compute_emas()`, `detect_crosses()`, `stack_stage()`, `check_states()` — TradingView method, pure functions (§2.11) |
 | `trend_indicators/ema/ema_snapshot.py` | `build_ema_snapshot()` — daily package + texts + alerts, never raises (§2.11) |
 | `trend_indicators/ema/test_ema.py`, `test_ema_snapshot.py` | 43 + 20 unit tests (§2.11) |
+| `trend_indicators/ema/conftest.py` | pytest results → `logs/ema_test_logs/test_ema.log` (2026‑10‑12) |
+| `trend_indicators/macd/macd.py` | `compute_macd()`, `hist_states()`, `trend_macd()`, `momentum_macd()`, `macd_label()`, `macd_all()` — TradingView MACD 12/26/9, any timeframe; manual check `--timeframe [all] --bars --dates --ohlc --state --crosses`, logs to `logs/macd_test_logs/` (§2.12) |
+| `trend_indicators/macd/test_macd.py` | 39 unit tests (§2.12) |
+| `trend_indicators/macd/macd_snapshot.py` | `build_macd_snapshot()` — per‑timeframe package + texts + alerts + summary line, never raises (§2.12) |
+| `trend_indicators/macd/test_macd_snapshot.py` | 21 unit tests (§2.12) |
+| `trend_indicators/macd/conftest.py` | pytest results → `logs/macd_test_logs/test_macd.log` (§2.12) |
 
-Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`.
+Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`.
+
+Logs (under `backend/logs/`, git‑ignored by `*.log`), overwritten each run, first line = the command:
+MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_all.log`, `macd_snapshot.log`, `test_macd.log`); EMA → `logs/ema_test_logs/`
+(`ema_check.log`, `ema_snapshot.log`, `test_ema.log`). The reader's own check still prints to screen only.
+Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14).
 
 ### Supabase tables
 | Table | Contents |
@@ -968,10 +1032,16 @@ python -m modules.market_data.upstox.repair_ohlcv_window --since 2026-08-17 --sc
 python -m modules.market_data.upstox.inspect_weekly_bar --keys "NSE_EQ|INE..." --week-start 2026-08-24
 
 # Indicators (§2.11) — read-only
-python -m modules.market_data.upstox.indicator_ohlcv_reader [--key "NSE_INDEX|Nifty 50"] [--domain indices]
+python -m modules.market_data.upstox.indicator_ohlcv_reader [--key "NSE_INDEX|Nifty 50"] [--domain indices|universe_intraday] [--timeframe 1d|1w|1mo|5m|15m|60m]
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema [--bars N] [--dates YYYY-MM-DD ...] [--crosses N] [--state]
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema_snapshot [--json] [--directions above]
 python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema -v
+
+# MACD (§2.12) — read-only; output also written to logs/macd_test_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd [--timeframe 1d|1w|1mo|5m|15m|60m|all] [--bars N] [--dates YYYY-MM-DD ...] [--ohlc] [--state] [--crosses N]
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --timeframe all --state      # where we stand on all six
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot [--timeframes ...] [--directions above] [--json]
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd -v
 ```
 
 `--limit N` = verify on the first N (always do this before a full run).

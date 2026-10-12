@@ -6,7 +6,7 @@ define EMA signals in different ways; this doc records only what **Fortuna** doe
 indicator (RSI, StochRSI, MACD, S&R … follow the same layout), stored in
 `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 2 — 2026‑10‑11. Code: `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/`._
+_Version 2.2 — 2026‑10‑12. Code: `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/`._
 
 ---
 
@@ -87,6 +87,13 @@ the `--state` and snapshot outputs (§10.3, §10.4) checked against the chart.
 
 **Re‑verifying later:** on TradingView, **scroll back a few years first**, then hover the candle and
 compare with `ema --dates YYYY-MM-DD …` (§11).
+
+### 3.6 Which TradingView chart
+Ash's "TradingView" charts are broker‑hosted TradingView charts, not tradingview.com: **tv.dhan.co** for
+Nifty (options are traded on Dhan) and **tv.upstox.com / pro.upstox.com** for stocks. Each uses its own
+broker's market data; on completed candles they agree with Fortuna. **Long EMAs differ slightly between
+platforms** because each loads a different amount of history (1h, 12 Oct 2026: EMA 100 = 22,840.71 on Dhan
+vs 22,839.37 on Upstox; EMA 5/13 identical) — the §3.5 loaded‑history effect again. Details: `MACD.md` §3.6.
 
 ---
 
@@ -288,7 +295,10 @@ Reading it: Nifty is in the strongest downtrend; today's close only just crept a
 ## 11. Not used / deferred
 
 - Other EMA lengths (9, 20, 21 …), SMA and other moving‑average types.
-- Weekly/monthly EMAs, intraday EMAs (needs reader rule 2), 4h/2h timeframes.
+- Weekly/monthly and intraday EMAs — **open item.** The reader now supports 1W/1M and 5m/15m/60m (reader
+  rule 2 built 2026‑10‑11 for MACD) and `compute_emas` already works on any timeframe; still needed: the
+  timeframe option in `ema.py` / `ema_snapshot.py` and "candles/weeks/months" wording in the texts.
+  4h/2h: not stored (resampling from 60m is an open item).
 - Volume confirmation (see §8).
 - **Stocks:** Upstox daily candles are not adjusted for demergers/splits (e.g. Tata Motors 2025‑10‑14,
   Siemens 2025‑04‑07). An adjustment approach is needed before EMAs on affected stocks are trusted.
@@ -308,11 +318,13 @@ All EMA files live in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_ind
 | `ema.py` → `check_states(df)` | adds `side_`, `held_`, `since_`, `margin_pts_`, `margin_pct_`, `candle_clear_` per check |
 | `ema_snapshot.py` → `build_ema_snapshot(...)` | the daily package + texts + alerts; never raises |
 | `test_ema.py` (43 tests), `test_ema_snapshot.py` (20 tests) | unit tests, no R2 |
+| `conftest.py` | pytest hook: PASSED/FAILED per test + failure text + summary → `logs/ema_test_logs/test_ema.log` (overwritten each run; only this folder's tests) |
 
 `ema.py` functions are pure (no I/O, nothing instrument‑specific). Full chain on 6,657 bars ≈ 70 ms.
 Reader: `market_data/upstox/indicator_ohlcv_reader.py` (13 tests).
 
-**Run** (from `backend/`):
+**Run** (from `backend/`; output also written to `logs\ema_test_logs\` — `ema_check.log`, `ema_snapshot.log`,
+`test_ema.log`, overwritten each run, first line = the command):
 ```
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema                    # latest 3 days' EMAs
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema --dates 2025-10-01 2026-10-09
@@ -324,9 +336,58 @@ python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema -v
 
 ---
 
-## 13. Change log
+## 13. Testing and verification (how EMA was proven)
+
+Two layers: **unit tests** (pure maths and rules on hand‑made data, no R2) and **live verification** (Fortuna
+on real Nifty data vs Ash's broker TradingView chart). A unit test passes because the code reproduces a
+value worked out independently (by hand, or by a separate plain loop written only for the test); a live
+check passes because Fortuna's number equals the chart's number for the same candle.
+
+### 13.1 Unit tests — `test_ema.py` (43) and `test_ema_snapshot.py` (20), all passing
+
+Run: `python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema -v` → results also in
+`logs\ema_test_logs\test_ema.log` (written by `ema/conftest.py`). Last run on Windows 2026‑10‑12: **63 passed**.
+
+| Group | Tests | What is checked | Why it passes (expected value comes from) |
+|---|---|---|---|
+| EMA formula | `test_hand_worked_3_ema` | 3‑EMA of 100, 110, 120, 100 = blank, blank, 110, 105 | worked by hand (§4 example) |
+| | `test_blank_before_n_bars_then_value`, `test_fewer_bars_than_period_is_all_blank`, `test_period_one_equals_close` | blanks before bar n; too‑short history → all blank; 1‑EMA = close | TradingView rule (§3.2) |
+| | `test_matches_independent_loop_for_all_default_periods` | all six EMAs on a long series | a separate plain loop of Pine's `ta.ema` inside the test |
+| | `test_keeps_index_alignment`, `test_default_columns_added`, `test_input_not_modified`, `test_custom_price_column` | output shape and safety | contract in the code docstring |
+| Input validation | `test_bad_periods_raise` ×5 (0, −5, 5.5, True, empty), `test_duplicate_periods_raise`, `test_missing_price_column_raises`, `test_unsorted_bars_raise` | bad input raises `ValueError` | input contract (programming errors raise) |
+| Cross rule | `test_cross_above_fires_once_on_the_cross_bar`, `test_equal_today_is_not_a_cross`, `test_cross_below_mirror`, `test_blank_on_either_bar_is_no_cross` | cross only on the bar where A > B and previous A ≤ B; mirror; equal/blank = no cross | TradingView `ta.crossover` / `ta.crossunder` (§5.1) |
+| The 12 checks | `test_default_checks_are_the_agreed_12`, `test_detect_crosses_adds_24_columns_and_keeps_input`, `test_detect_crosses_matches_plain_loop`, `test_golden_cross_on_known_bar`, `test_detect_crosses_without_emas_raises`, `test_detect_crosses_unsorted_raises` | exactly the agreed checks; 24 columns; same result as a plain loop; golden cross on a hand‑built bar | §5.2 list; plain loop; hand‑built data |
+| Stage | `test_stack_stage` ×8 (+5, −5, +1, +2, −1 pullback, 0 equal, +4 with blank 200, blank 13 → n/a), `test_stage_missing_columns_raise` | stage counting from the fast end, stops at first break | §6 table, hand‑built rows |
+| States | `test_side_held_since`, `test_margin_points_and_percent`, `test_whole_candle_clear`, `test_ema_pairs_have_no_candle_flag`, `test_blank_values_give_blank_state_and_restart_count`, `test_states_keep_input_and_full_default_run`, `test_held_matches_plain_loop` | side, days held (cross day = 1), since, margin, whole candle clear | §7 definitions; hand counts; plain loop |
+| Snapshot labels | `test_stage_label` ×6 | STRONG / EARLY / plain / NEUTRAL / n/a wording | §6 labels |
+| Snapshot texts | `test_snapshot_values_and_json_safe`, `test_header_and_ema_line`, `test_cross_today_text_and_alert`, `test_holding_line_after_cross`, `test_directions_above_filters_cross_below`, `test_stage_change_line`, `test_bigger_trend_line`, `test_golden_cross_text`, `test_short_history_blank_200`, `test_single_bar` | each text line appears when it should, with the right numbers; JSON‑safe; short history shows n/a | §9 templates on hand‑built price paths |
+| Never raises | `test_bad_inputs_raise_in_pure_core`, `test_build_ok`, `test_build_reader_not_ok`, `test_build_bad_directions_does_not_raise` | pure core raises on bad input; the boundary (`build_ema_snapshot`) never raises — returns ok/not‑ok + reason | never‑raise boundary rule; reader faked |
+
+Reader tests (`test_indicator_ohlcv_reader.py`, 19) are listed in `MACD.md` §14.1.
+
+### 13.2 Live verification (real Nifty data vs Ash's chart, tv.dhan.co)
+
+| Check | How it was cross‑checked | Result |
+|---|---|---|
+| All six EMAs, 11 dates 2022‑10‑03 … 2026‑10‑09 | `ema --dates …` vs hovering the same candles | equal to the paisa (§3.5) |
+| Latest 15 crosses (25 Aug … 9 Oct 2026) | `ema --crosses 15` vs cross points on the chart | all confirmed (§10.2) |
+| `--state` and snapshot texts | read against the chart | match (§10.3, §10.4); re‑run 2026‑10‑12 after the reader change: identical output (`logs\ema_test_logs\ema_check.log`, `ema_snapshot.log`) |
+
+### 13.3 Known discrepancies (all explained, none is a Fortuna error)
+
+| Seen | Cause | Status |
+|---|---|---|
+| EMA 200 +0.35 on 9 Oct (first read) | TradingView computes over the history it has loaded; with little history its 200 EMA had not settled | gone after scrolling back — matches (§3.5) |
+| 2020 values slightly off (EMA 100 −0.17) | old‑data differences that fade to zero by 2022 | no effect on current values |
+| EMA 100/200 differ between charts on a fresh load (e.g. 12 Oct daily: 23,750.12 / 24,085.44; 1h: Dhan 22,840.71 vs Upstox 22,839.37) | each chart loads a different amount of history | expected; short EMAs identical (§3.6) |
+
+---
+
+## 14. Change log
 
 | Date | Change |
 |---|---|
 | 2026‑10‑11 | v1 — periods, formula, 12 checks, cross rule, stage, check states, thresholds (none yet), volume deferred. |
 | 2026‑10‑11 | v2 — TradingView parity explained in detail (§3), snapshot and texts (§9), sample outputs (§10), files moved to `trend_indicators/ema/`, data fetch left to the refresh step. |
+| 2026‑10‑12 | v2.1 — §3.6 broker‑hosted TradingView charts (tv.dhan.co for Nifty, tv.upstox / pro.upstox for stocks); §11 multi‑timeframe EMA logged as an open item (reader now supports intraday). |
+| 2026‑10‑12 | v2.2 — file logging for the manual checks and tests: `ema` → `logs/ema_test_logs/ema_check.log`, `ema_snapshot` → `ema_snapshot.log`, pytest → `test_ema.log` (new `ema/conftest.py`); only the `__main__` blocks changed, EMA maths untouched; re‑run output identical. §13 testing and verification record (every unit test, how it was cross‑checked, known discrepancies). |

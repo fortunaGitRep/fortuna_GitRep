@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-10-11 (indicator OHLCV reader + EMA parts 1–4 built and verified against TradingView; EMA spec doc; frontend for indicators logged as an important open item). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
+**Last updated:** 2026-10-12 (MACD complete, parts 1–4: intraday reader + reader rule 2, `compute_macd`, trend/momentum states + labels, snapshot texts on 1M/1W/1D/60m/15m/5m — values and cross dates exact vs TradingView on tv.dhan; MACD spec doc v3; MACD + EMA output logging to `logs/`). Earlier: 2026-10-11 (indicator OHLCV reader + EMA parts 1–4 built and verified against TradingView; EMA spec doc; frontend for indicators logged as an important open item). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
 
 ---
 
@@ -106,7 +106,12 @@ Thumbs.db
 - [ ] Model string in `ai_gateway.py` (`claude-sonnet-4-5`) not verified against the live API account.
 - [ ] **VIX regime thresholds (25/75/90 percentile) need India-VIX backtesting** — currently sensible defaults, but should be validated/tuned against India VIX's own history before fully trusting the regime bands for live sizing.
 - [ ] **True VIX acceleration flag** — `recent_volatility_stress` is cross-sectional (value unusual recently vs annually), not a time-change. A genuine "VIX rising over N days" flag (multi-day % change) would be a stronger stress signal — future enhancement.
-- [ ] **⚠ IMPORTANT — Frontend for indicators (added 2026-10-11).** Show each indicator's snapshot on the frontend: a small TradingView Lightweight Charts chart (candles + the 6 EMA lines, cross markers) plus the plain-English text panel and all 6 EMA values (today and yesterday). Backend side is ready: `ema_snapshot.build_ema_snapshot()` returns a JSON-safe package (texts, values, stage, 12 check states, alerts). Still needed: an API endpoint returning it, and the React component. Lightweight Charts licence requires the TradingView attribution notice + link on a public page. Must fit the existing unwired frontend (React + Vite + TS, five tabs Inbox/Buy/Exit/Positions/Watchlist on dummy data, `theme.css` teal/coral palette, ~480 px mobile shell, Global Gate UI samples in design phase). Text readability to be refined there (cards, colour for up/down, bold stage).
+- [ ] **⚠ IMPORTANT — Frontend for indicators (added 2026-10-11).** Show each indicator's snapshot on the frontend: a small TradingView Lightweight Charts chart (candles + the 6 EMA lines, cross markers) plus the plain-English text panel and all 6 EMA values (today and yesterday). Backend side is ready: `ema_snapshot.build_ema_snapshot()` returns a JSON-safe package (texts, values, stage, 12 check states, alerts); `macd_snapshot.build_macd_snapshot()` (2026-10-12) returns one package per timeframe (1M/1W/1D/60m/15m/5m: TradingView numbers, label, states, events, alerts, texts) plus a summary line. Still needed: an API endpoint returning it, and the React component. Lightweight Charts licence requires the TradingView attribution notice + link on a public page. Must fit the existing unwired frontend (React + Vite + TS, five tabs Inbox/Buy/Exit/Positions/Watchlist on dummy data, `theme.css` teal/coral palette, ~480 px mobile shell, Global Gate UI samples in design phase). Text readability to be refined there (cards, colour for up/down, bold stage).
+- [ ] **MACD event list (added 2026-10-12)** — momentum turns flood `--crosses` (daily: 2,389 events, mostly dark-red/light-red flips). Proposed: `--crosses N` = zero + signal crosses only, `--turns N` = momentum turns, one log per mode so runs don't overwrite each other; later test a minimum hold before a turn is texted.
+- [ ] **2h / 4h indicator timeframes (added 2026-10-12)** — not stored; resample from 60m with candles anchored to 09:15 each session as TradingView draws them; needs its own parity check.
+- [ ] **Live / intraday alerting (added 2026-10-12)** — Upstox's historical API never returns the current day, so intraday indicators are a pre-market view today. Needs the live feed (and Upstox's today's-candles API, to confirm), alerts on candle close, optional forming-candle preview. Broker charts' forming-candle values differ slightly (Dhan vs Upstox), so judge live parity on closed candles.
+- [ ] **EMA on other timeframes (added 2026-10-12)** — reader already supports 1W/1M/5m/15m/60m; add the timeframe option to `ema.py` / `ema_snapshot.py` and "candles/weeks/months" wording.
+- [ ] **File logging for the reader's manual check (added 2026-10-12)** — same pattern as `macd` / `ema` (screen + log file under `logs/`). EMA done 2026-10-12 (`logs/ema_test_logs/`).
 - [ ] **Signal engine Stage 5 (`Module_F_Tech_Indicators_Funnel`, ENG-1..11)** — empty placeholder package only. Depends on real Nifty OHLC (now available). Combining Stage 1-4 + Stage 5 = the `Module_F_Foundation_Gate_Funnel` combiner (parent `__init__.py`, currently a placeholder comment).
 
 ---
@@ -650,3 +655,53 @@ Fix: `update_instrument()` now checks `last_success_at` against a cooldown *befo
 - Build log / data-flow doc now point to the `Fortuna Indicators` spec folder.
 
 **Next:** MACD — research, discuss, spec, then build (same pattern as EMA).
+
+---
+
+### 2026-10-11 / 12 — MACD parts 1–2: intraday reader (reader rule 2), MACD values, parity vs broker TradingView charts, MACD spec doc
+
+**Decided:**
+- **MACD = TradingView defaults** 12 / 26 / close / 9, EMA / EMA (confirmed from Ash's settings dialog). Histogram colour = TradingView's exact 4-state rule.
+- **Display rule (Ash):** everything TradingView shows, Fortuna shows; anything extra (PPO %, labels, texts) is added on top, never replaces a TradingView number. PPO kept as a column for later stock ranking.
+- **Folder** `trend_indicators/macd/`; two views: `trend_macd` (MACD vs zero = which direction) and `momentum_macd` (MACD vs signal + histogram = speeding up / slowing down); combined label STRONG UPTREND / UPTREND PAUSING / DOWNTREND WEAKENING / STRONG DOWNTREND. Divergence deferred to v2. No thresholds yet (facts only), same as EMA.
+- **Timeframes for most indicators:** 1M, 1W, 1D, 60m, 15m, 5m; 2h/4h and live alerting are open items. Indicators report the latest completed candle; the latest weekly/monthly candle is "week/month to date".
+- **Reference charts:** tv.dhan.co for Nifty (options traded on Dhan), tv.upstox.com / pro.upstox.com for stocks (swing equity on Upstox). These are broker-hosted TradingView charts on each broker's own data, not tradingview.com.
+- **Logging rule (Ash):** every command's output goes to a log file as well as the screen — MACD now writes to `logs/macd_test_logs/`; reader/ema/ema_snapshot to follow.
+- **Docs rule (Ash):** don't update docs every prompt during a session; update them at natural checkpoints.
+
+**Built:**
+- `market_data/upstox/indicator_ohlcv_reader.py` — now reads 5m/15m/60m (domain `universe_intraday`); **reader rule 2**: drop bars starting at/after 15:30 IST on days that also have regular-session bars (Muhurat evenings kept, per rule 3); result adds `rows_dropped_after_close`, `days_after_close`, `last_ts`; wrong-domain hint. `test_indicator_ohlcv_reader.py` — 19 tests.
+- `Module_F_Tech_Indicators_Funnel/trend_indicators/macd/` — `macd.py` (`compute_macd`, `hist_states`; reuses `ema.ema_tradingview`; manual check `--timeframe --bars --dates --ohlc`, output to screen + `logs/macd_test_logs/macd_check_<tf>.log`), `test_macd.py` (21 tests), `conftest.py` (pytest results → `logs/macd_test_logs/test_macd.log`), `__init__.py`.
+- **Spec doc:** `Dev Documents\Development Docs\Fortuna Indicators\MACD.md` (v2) — settings, parity method and proof, broker charts, colour rule, trend/momentum design, labels, texts plan, real outputs, verification record, code map, run commands. `EMA.md` v2.1 (broker charts; multi-timeframe + logging open items).
+
+**Verified (data as of 9 Oct 2026):**
+- Reader on real Nifty data: 5m and 15m each dropped 94 after-close bars on 89 days; 60m none; the 3 evening-only days kept are exactly the Muhurat sessions 2022-10-24, 2023-11-12, 2024-11-01 (89 + 3 = the 92 days the audit found).
+- MACD equals TradingView (tv.dhan) to the paisa on 1D (7/8/9 Oct 2026 and 9 Oct 2020), 1W (week of 5 Oct), 1M (Sep 2026), 60m (9 Oct 09:15 — same on tv.dhan, tv.upstox, pro.upstox — and 15:15), 5m (9 Oct 15:15/15:20/15:25); 15m 15:15 first read within 0.02, exact on re-read (12 Oct). Upstox candles equal the broker charts' O/H/L/C.
+- Every mismatch on the way had a known cause: TradingView's loaded history (daily 9 Oct read 0.08 off on a fresh page load, exact after re-hover; same chart showed EMA 100/200 off), the live price inside the running month (Oct 1M: worked through by hand to TradingView's exact numbers), or the crosshair on the wrong candle (5m).
+- Tests on Windows: 19 reader + 21 MACD pass.
+
+**Lessons:** give TradingView checks as exact candles with the year (a "9 Oct" hover landed on 2020); read completed candles only; keep instructions to the chart short.
+
+**Also (12 Oct):** EMA file logging — `ema`, `ema_snapshot` and the EMA tests now write to `logs/ema_test_logs/` (`ema_check.log`, `ema_snapshot.log`, `test_ema.log` via new `ema/conftest.py`); only `__main__` blocks changed. Re-run on Windows: 63 EMA tests pass, `--state` and snapshot output identical to before. Both `conftest.py` files log only their own folder's tests. Spec docs got a testing & verification section (`EMA.md` §13, `MACD.md` §14): every unit test, what it checks, where its expected value comes from, live checks, known discrepancies. (Pytest only loads files named exactly `conftest.py`, so they can't be renamed `ema_…`/`macd_…`; the folder identifies them.)
+
+**Next:** MACD part 3 — `trend_macd`, `momentum_macd`, `macd_label`, `--state`, `--crosses N` (approach agreed, awaiting go-ahead).
+
+---
+
+### 2026-10-12 (cont'd) — MACD parts 3–4: trend/momentum states, labels, snapshot texts; MACD complete
+
+**Built** (in `trend_indicators/macd/`):
+- `macd.py` — `trend_macd` (MACD vs zero: side, held, since, from_start, zero crosses), `momentum_macd` (MACD vs signal: side, held, since, gap, signal crosses tagged below/above/at zero, histogram colour held, momentum turns), `macd_label` (STRONG UPTREND / UPTREND PAUSING / DOWNTREND WEAKENING / STRONG DOWNTREND / NEUTRAL / n/a), `macd_all`. Manual check: `--state`, `--crosses N`, `--timeframe all` (all six timeframes + summary table → `logs/macd_test_logs/macd_check_all.log`).
+- `macd_snapshot.py` — `snapshot_from_bars` (pure, one timeframe), `summary_line`, `build_macd_snapshot(key, name, timeframes, directions)` (never raises; a failed timeframe → None + reason, others still built). Texts: header (week/month "to date", intraday "candle"), TradingView numbers today + previous, label + momentum + "watch for" hint, events on the latest candle (signal cross with zone meaning, ⚡ zero cross, ⚡ momentum turn), holding line (2–5 candles), bigger picture, summary line. `directions`: both (Nifty) / above (stocks, bullish only). Manual check → `logs/macd_test_logs/macd_snapshot.log`.
+- Tests: `test_macd.py` 39 (+18), `test_macd_snapshot.py` 21 → **60 pass on Windows**.
+- EMA file logging: `ema`, `ema_snapshot`, EMA tests → `logs/ema_test_logs/` (new `ema/conftest.py`); output identical to before; 63 EMA tests pass.
+
+**Verified on real Nifty data (as of 9 Oct close) vs tv.dhan:** 9 cross dates across all six timeframes on the chart's own candle — 1M signal cross below Jan 2025, zero cross above Aug 2020; 1W signal cross below week of 14 Sep 2026 (TradingView labels it Tue 15 Sep — first trading day of the week; Upstox labels weeks by Monday), zero cross below week of 2 Mar 2026; 1D signal cross below 13 Aug, zero cross below 27 Aug; 60m signal cross above 9 Oct 11:15 (2.23 / −64.49 / −66.72, exact); 15m signal cross below 9 Oct 15:15 (−0.08 / 35.25 / 35.33, exact — closes the 15m discrepancy); 5m signal cross below 9 Oct 14:45. Snapshot texts read against the charts.
+
+**Where Nifty stood at the 9 Oct close (MACD):** 1M uptrend pausing · 1W strong downtrend · 1D strong downtrend (fading) · 60m downtrend weakening · 15m uptrend pausing · 5m uptrend pausing.
+
+**Docs:** `MACD.md` v3 (columns, texts with real wording, cross-date checks §10.4, state §10.5, snapshot §10.6, tests §14), `EMA.md` v2.2 (testing & verification §13), data-flow §2.12.
+
+**Open:** split crosses vs momentum turns in the event list; frontend for indicators (EMA + MACD snapshots ready); live intraday; 2h/4h; EMA on other timeframes; reader file logging.
+
+**Next:** Ash to commit EMA logging + MACD; then the next indicator (RSI / StochRSI / S&R) or the event-list split.
