@@ -43,6 +43,10 @@ Deferred (with reasons):
   - Logging: none inside the pure function (nothing can fail silently here; bad
     input raises). The manual check below and future callers log their runs.
   - Stage / texts: separate later steps, by agreement (baby steps).
+
+Shared helpers (2026-10-12): ema_tradingview, cross_above and cross_below now live in
+../../indicator_common/ (smoothing.py, crosses.py), moved unchanged; this file
+imports and re-exports them, so existing imports from ema.py still work.
 """
 
 from __future__ import annotations
@@ -52,37 +56,22 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+# Shared helpers (moved to indicator_common 2026-10-12, unchanged). Re-exported here
+# so `from ...ema.ema import ema_tradingview, cross_above, cross_below` keeps working.
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.crosses import (  # noqa: F401
+    cross_above,
+    cross_below,
+)
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.smoothing import (  # noqa: F401
+    ema_tradingview,
+)
+
 DEFAULT_PERIODS: tuple[int, ...] = (5, 13, 26, 50, 100, 200)
 
 # Part 2 — crosses. Each check is (A, B): "A crossed above / below B".
 #   close vs each EMA (6), the stack pairs (5), and the 50/200 golden/death cross (1).
 STACK_PAIRS: tuple[tuple[int, int], ...] = ((5, 13), (13, 26), (26, 50), (50, 100), (100, 200))
 GOLDEN_DEATH_PAIR: tuple[int, int] = (50, 200)
-
-
-def ema_tradingview(prices: pd.Series, period: int) -> pd.Series:
-    """
-    One EMA series, TradingView method (SMA seed at bar `period`, blank before).
-
-    Returns a float Series aligned to `prices` (same index), NaN for the first
-    period-1 bars, or all-NaN if there are fewer than `period` bars.
-    """
-    out = pd.Series(np.nan, index=prices.index, dtype="float64")
-    if len(prices) < period:
-        return out
-
-    values = prices.to_numpy(dtype="float64")
-    seed = values[:period].mean()
-    # From the seed bar onward: start at the SMA seed, then the recursive EMA.
-    tail = values[period - 1:].copy()
-    tail[0] = seed
-    alpha = 2.0 / (period + 1)
-    ema_tail = (pd.Series(tail)
-                .ewm(alpha=alpha, adjust=False)
-                .mean()
-                .to_numpy())
-    out.iloc[period - 1:] = ema_tail
-    return out
 
 
 def _validate(df: pd.DataFrame, periods: tuple[int, ...], price_col: str) -> None:
@@ -138,18 +127,6 @@ def default_cross_checks(periods: Iterable[int] = DEFAULT_PERIODS) -> list[tuple
     if a in periods and b in periods and (a, b) not in STACK_PAIRS:
         checks.append((f"ema_{a}", f"ema_{b}"))
     return checks
-
-
-def cross_above(a: pd.Series, b: pd.Series) -> pd.Series:
-    """TradingView ta.crossover: a > b on this bar AND a <= b on the previous bar.
-    A blank (NaN) on either bar gives False."""
-    return (a > b) & (a.shift(1) <= b.shift(1))
-
-
-def cross_below(a: pd.Series, b: pd.Series) -> pd.Series:
-    """TradingView ta.crossunder: a < b on this bar AND a >= b on the previous bar.
-    A blank (NaN) on either bar gives False."""
-    return (a < b) & (a.shift(1) >= b.shift(1))
 
 
 def detect_crosses(

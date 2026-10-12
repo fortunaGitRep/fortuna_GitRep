@@ -5,7 +5,7 @@ formulas, settings, rules, thresholds and outputs Fortuna uses. Other books and 
 different ways; this doc records only what **Fortuna** does. Same layout as `EMA.md`, stored in
 `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 3.3 — 2026‑10‑12 (§6.1 higher‑timeframe momentum turns: text, no alert — option c). v3.2 — event list split: `--crosses` / `--turns` / `--events`. v3.1 — §0 plain‑English definition; runbook `Fortuna-Indicators-Runbook.md`. v3 — **MACD complete (parts 1–4): values, trend / momentum states, labels, events and
+_Version 3.4 — 2026‑10‑12 (shared helpers moved to `indicator_common/`, §13). v3.3 — (§6.1 higher‑timeframe momentum turns: text, no alert — option c). v3.2 — event list split: `--crosses` / `--turns` / `--events`. v3.1 — §0 plain‑English definition; runbook `Fortuna-Indicators-Runbook.md`. v3 — **MACD complete (parts 1–4): values, trend / momentum states, labels, events and
 texts on all six timeframes, verified against TradingView (tv.dhan) — values and cross dates exact.** Code:
 `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd/`._
 
@@ -640,8 +640,14 @@ All MACD files in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicat
 | `macd_snapshot.py` → `build_macd_snapshot(key, name, timeframes, directions)` | built | reads each timeframe, never raises → `MacdSnapshotResult(ok, snapshots, errors, summary)`; manual check writes `logs/macd_test_logs/macd_snapshot.log` |
 | `test_macd_snapshot.py` | built | 21 tests (§14.1) |
 
-Reuses `ema.ema_tradingview()` from `../ema/ema.py` (no copy). Reader:
-`market_data/upstox/indicator_ohlcv_reader.py` (D/W/M + 5m/15m/60m, rules 1–2).
+**Shared helpers (2026‑10‑12):** MACD imports from `Module_F_Tech_Indicators_Funnel/indicator_common/` (no
+copies): `ema_tradingview` (`smoothing.py`), `cross_above` / `cross_below`, `runs` (was `_runs`), `bar_labels`
+(was `_labels`) (`crosses.py`), `DEFAULT_DOMAIN` (was `_DEFAULT_DOMAIN`), `TIMEFRAMES`, `TF_NAME`, the time
+words (`timeframes.py`) and the formatting helpers `_num`, `_int`, `_iso`, `_when`, `_units`, `_p`, `_sp`
+(`text_format.py`). Moved unchanged from `macd.py` / `macd_snapshot.py` / `ema.py`; the old names are still
+exported from `macd.py` and `macd_snapshot.py`. Proof: 66 MACD tests unchanged and passing, before/after outputs
+identical on all six timeframes, `macd --dates 2026-10-09` still −28.78 / −360.57 / −331.79.
+Reader: `market_data/upstox/indicator_ohlcv_reader.py` (D/W/M + 5m/15m/60m, rules 1–2).
 
 **Run** (from `backend/`; every MACD output also lands in `logs\macd_test_logs\`):
 ```
@@ -765,3 +771,4 @@ Part 4 tests (21, `test_macd_snapshot.py`):
 | 2026‑10‑12 | v3.1 — §0 "What MACD is, how it works, how to read it" (three lines, histogram colours, trend vs momentum, strengths/weaknesses); code‑map test count corrected (`test_macd.py` 39). Runbook: `Fortuna-Indicators-Runbook.md`. Noted: `macd_snapshot` reads D/W/M from `indices` only — stocks need a domain option (open item). |
 | 2026‑10‑12 | v3.2 — event list split (Ash approved): `--crosses N` = zero + signal crosses, new `--turns N` = momentum turns, new `--events N` = the old combined list (verified identical); one log per mode (`macd_check_<tf>_<mode>.log`); modes mutually exclusive. Maths, colours, labels, snapshot, tests unchanged. §6.1 records what it was, the trading effect, Ash's view (keep lower‑timeframe turns; higher‑timeframe noise not needed — open decision), how to revert. |
 | 2026‑10‑12 | v3.3 — option (c) chosen by Ash: momentum turns on 1M/1W/1D shown on the same candle as TradingView as a plain text (no ⚡), not an alert; 60m/15m/5m unchanged (⚡ + alert). `macd_snapshot._TURN_ALERT_TIMEFRAMES`; 6 new tests (66). Real counts after the split recorded; Ash's note that alerts are pointers and decisions come from all indicators combined. |
+| 2026‑10‑12 | v3.4 — shared helpers moved unchanged to `indicator_common/` (`_runs`, `_labels`, `_DEFAULT_DOMAIN`, `TIMEFRAMES`, `TF_NAME`, time words, formatting helpers; `ema_tradingview` and crosses from `ema.py`), old names re‑exported; MACD results identical (§13). |

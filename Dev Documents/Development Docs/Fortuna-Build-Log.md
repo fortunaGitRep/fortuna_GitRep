@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-10-12 (ADX / DMI complete — five TradingView lines, strength band, direction, DI-cross ADX tag, texts on all six timeframes; daily exact to 4 decimals; spec ADX.md. Earlier same day: MACD complete, parts 1–4: intraday reader + reader rule 2, `compute_macd`, trend/momentum states + labels, snapshot texts on 1M/1W/1D/60m/15m/5m — values and cross dates exact vs TradingView on tv.dhan; MACD spec doc v3; MACD + EMA output logging to `logs/`). Earlier: 2026-10-11 (indicator OHLCV reader + EMA parts 1–4 built and verified against TradingView; EMA spec doc; frontend for indicators logged as an important open item). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
+**Last updated:** 2026-10-12 (Shared indicator helper module `indicator_common/` — `ema_tradingview`, `rma_tradingview`, crosses, runs, timeframe map and text formatting moved out of ema/macd/adx unchanged; 242 tests pass; real-data reference values unchanged. Earlier same day: ADX / DMI complete — five TradingView lines, strength band, direction, DI-cross ADX tag, texts on all six timeframes; daily exact to 4 decimals; spec ADX.md. Earlier same day: MACD complete, parts 1–4: intraday reader + reader rule 2, `compute_macd`, trend/momentum states + labels, snapshot texts on 1M/1W/1D/60m/15m/5m — values and cross dates exact vs TradingView on tv.dhan; MACD spec doc v3; MACD + EMA output logging to `logs/`). Earlier: 2026-10-11 (indicator OHLCV reader + EMA parts 1–4 built and verified against TradingView; EMA spec doc; frontend for indicators logged as an important open item). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
 
 ---
 
@@ -108,7 +108,9 @@ Thumbs.db
 - [ ] **True VIX acceleration flag** — `recent_volatility_stress` is cross-sectional (value unusual recently vs annually), not a time-change. A genuine "VIX rising over N days" flag (multi-day % change) would be a stronger stress signal — future enhancement.
 - [ ] **⚠ IMPORTANT — Frontend for indicators (added 2026-10-11).** Show each indicator's snapshot on the frontend: a small TradingView Lightweight Charts chart (candles + the 6 EMA lines, cross markers) plus the plain-English text panel and all 6 EMA values (today and yesterday). Backend side is ready: `ema_snapshot.build_ema_snapshot()` returns a JSON-safe package (texts, values, stage, 12 check states, alerts); `macd_snapshot.build_macd_snapshot()` and `adx_snapshot.build_adx_snapshot()` (2026-10-12) return one package per timeframe (1M/1W/1D/60m/15m/5m: TradingView numbers, label, states, events, alerts, texts) plus a summary line. Still needed: an API endpoint returning it, and the React component. Lightweight Charts licence requires the TradingView attribution notice + link on a public page. Must fit the existing unwired frontend (React + Vite + TS, five tabs Inbox/Buy/Exit/Positions/Watchlist on dummy data, `theme.css` teal/coral palette, ~480 px mobile shell, Global Gate UI samples in design phase). Text readability to be refined there (cards, colour for up/down, bold stage).
 - [ ] **MACD event list (added 2026-10-12)** — momentum turns flood `--crosses` (daily: 2,389 events, mostly dark-red/light-red flips). Proposed: `--crosses N` = zero + signal crosses only, `--turns N` = momentum turns, one log per mode so runs don't overwrite each other; later test a minimum hold before a turn is texted.
-- [ ] **Shared indicator helpers (added 2026-10-12)** — ADX imports `_runs` from macd.py and formatting helpers from macd_snapshot.py, and repeats the timeframe→domain map; move these into one shared helper module when the next indicator needs them.
+- [x] ~~**Shared indicator helpers (added 2026-10-12)**~~ — **done 2026-10-12.** `Module_F_Tech_Indicators_Funnel/indicator_common/` (smoothing, crosses, timeframes, text_format); ADX no longer imports from `macd/`. See session log "Shared indicator helper module".
+- [ ] **Drop the old-name re-exports (optional, added 2026-10-12)** — `ema.py`, `macd.py`, `macd_snapshot.py`, `adx.py` still export the moved helpers under their old names (`ema_tradingview`, `_runs`, `_DEFAULT_DOMAIN`, `_num` …) so nothing broke. Later, in its own commit: point the existing tests and callers at `indicator_common` and remove the shims.
+- [ ] **ema_snapshot daily-only helpers (added 2026-10-12)** — `ema_snapshot.py` keeps its own `_num`, `_iso(x)`, `_day`, `_price` (daily-only signatures). Fold into `indicator_common/text_format.py` when EMA gets other timeframes.
 - [ ] **2h / 4h indicator timeframes (added 2026-10-12)** — not stored; resample from 60m with candles anchored to 09:15 each session as TradingView draws them; needs its own parity check.
 - [ ] **Live / intraday alerting (added 2026-10-12)** — Upstox's historical API never returns the current day, so intraday indicators are a pre-market view today. Needs the live feed (and Upstox's today's-candles API, to confirm), alerts on candle close, optional forming-candle preview. Broker charts' forming-candle values differ slightly (Dhan vs Upstox), so judge live parity on closed candles.
 - [ ] **EMA on other timeframes (added 2026-10-12)** — reader already supports 1W/1M/5m/15m/60m; add the timeframe option to `ema.py` / `ema_snapshot.py` and "candles/weeks/months" wording.
@@ -755,3 +757,37 @@ Ash: the docs must let him run and check everything without Claude, and must exp
 **Decided — option (c) (Ash):** momentum turns on 1M/1W/1D appear on the same candle as TradingView as plain text, no alert; 60m/15m/5m keep ⚡ + alert. Rejected (b) because it delays the alert by a candle. Built in `macd_snapshot.py` (`_TURN_ALERT_TIMEFRAMES`), 6 new tests → 66 MACD tests. Ash: alerts won't make him trade; the goal is the combined read of all indicators to trade the higher-probability side → logged as an open item. Docs: `MACD.md` v3.3 §6.1, runbook v1.1.
 
 **Next:** Ash to commit — two commits (list split; option c) so each can be reverted alone.
+
+---
+
+### 2026-10-12 (cont'd) — Shared indicator helper module (`indicator_common/`)
+
+**Why:** next is a new indicator family, `oscillators/` (RSI, Stochastic RSI) beside `trend_indicators/`. RSI uses Wilder's average (`rma_tradingview`), which lived in `adx.py`; importing it from `trend_indicators/adx/` would tangle the families. ADX already imported `_runs` from `macd.py` and formatting helpers from `macd_snapshot.py`, and repeated the timeframe→domain map and time words. So the open item "shared indicator helpers" was done first, as its own commit.
+
+**Decided:**
+- Folder `backend/modules/Module_F_Tech_Indicators_Funnel/indicator_common/`, a peer of `trend_indicators/` and the future `oscillators/` (same shared-vs-feature rule as `db/` and `market_data/`).
+- **Move, don't copy:** each function body moved unchanged. The old files import the shared helpers back under their old names, so every existing import, test and command works as before. Removing these shims is an optional later commit (open item).
+- New oscillator family folder name: **`oscillators/`**. MACD is technically an oscillator too, but stays under `trend_indicators/` (it is read for trend + momentum); `RSI.md` will carry a one-line note saying so.
+- `ema_snapshot.py` untouched (its helpers are daily-only; open item).
+
+**Built (new):**
+
+| File | Holds | Moved from |
+|---|---|---|
+| `smoothing.py` | `ema_tradingview` (Pine `ta.ema`), `rma_tradingview` (Pine `ta.rma`) | `ema.py`, `adx.py` |
+| `crosses.py` | `cross_above`, `cross_below`, `runs` (was `_runs`), `bar_labels` (was `_labels`) | `ema.py`, `macd.py`, `adx.py` |
+| `timeframes.py` | `TIMEFRAMES`, `TF_NAME`, `DEFAULT_DOMAIN` (was `_DEFAULT_DOMAIN`), `UNIT` / `NOW` / `PREV`, `is_intraday` | `macd.py`, `adx.py`, `macd_snapshot.py`, `adx_snapshot.py` |
+| `text_format.py` | `num`, `to_int`, `iso`, `when`, `units`, `price`, `signed` (were `_num`, `_int`, `_iso`, `_when`, `_units`, `_p`, `_sp`) | `macd_snapshot.py` |
+| `test_indicator_common.py` (52 tests), `conftest.py`, `__init__.py` | tests → `logs/indicator_common_test_logs/test_indicator_common.log` | — |
+
+**Changed:** `ema/ema.py`, `macd/macd.py`, `macd/macd_snapshot.py`, `adx/adx.py`, `adx/adx_snapshot.py` — helper bodies replaced by imports from `indicator_common`; docstrings note the move. No maths, texts, flags or log names changed.
+
+**Verified:**
+- **Before/after on the same data** (3,000‑candle synthetic series, run on the old and the new code): 29 of 29 outputs identical — every column of `check_states`/`stack_stage` (EMA), `macd_all`, `adx_all`, and every MACD / ADX / EMA snapshot (texts + package) on all six timeframes, both directions.
+- **Tests (Windows, Ash):** 242 pass — EMA 63, MACD 66, ADX 61 (all unchanged) + indicator_common 52. The 52 include 33 checks that each old name *is* the shared object (so nothing can drift), plus hand‑worked EMA/RMA, plain‑loop RMA reference, cross rule, runs, labels, timeframe map, text formatting.
+- **Real data (Ash's logs, 12 Oct):** runbook §6.1 reference values unchanged — EMA 1D 9 Oct 22,520.37 … 24,077.44; MACD −28.78 / −360.57 / −331.79 light red; ADX 9.9922 / 38.3904 / 58.6951 / 43.8447 / 37.4798.
+- All six manual‑check commands start (`--help`); lint clean.
+
+**Docs:** runbook v1.2 (§1, §4.5, §9, §10), `EMA.md` v2.4, `MACD.md` v3.4, `ADX.md` v1.2 (code maps + change logs), this entry. `fortuna_data_pipeline_flow.md` §2.12 / §5 code map not attached this session — add `indicator_common/` there next time it is open.
+
+**Next:** RSI — research → discuss → plan → approve → code. Ash to share the RSI / Stochastic RSI settings screenshots (tv.dhan).

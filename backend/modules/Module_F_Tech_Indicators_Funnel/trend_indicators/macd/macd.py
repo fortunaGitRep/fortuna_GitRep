@@ -52,6 +52,11 @@ Deferred (with reasons):
   - Logging: none inside the pure function (bad input raises); the manual check
     below and future callers log their runs.
   - Events / states / texts: parts 3-4, by agreement (baby steps).
+
+Shared helpers (2026-10-12): ema_tradingview, cross_above / cross_below, the run
+helper (_runs), the bar-label helper (_labels) and the timeframe -> domain map
+(_DEFAULT_DOMAIN) now live in ../../indicator_common/, moved unchanged. This file
+imports them and still exports _runs and _DEFAULT_DOMAIN under the old names.
 """
 
 from __future__ import annotations
@@ -59,10 +64,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema import (
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.crosses import (
+    bar_labels as _labels,
     cross_above,
     cross_below,
-    ema_tradingview,
+    runs as _runs,          # re-exported under the old name (tests, adx used M._runs)
+)
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.smoothing import ema_tradingview
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.timeframes import (
+    DEFAULT_DOMAIN as _DEFAULT_DOMAIN,   # re-exported under the old name
 )
 
 FAST, SLOW, SIGNAL = 12, 26, 9
@@ -168,36 +178,6 @@ def _require(df: pd.DataFrame, cols: tuple[str, ...], what: str) -> None:
         raise ValueError(f"bars are not in ascending 'ts' order; sort before {what}")
 
 
-def _runs(values: pd.Series, labels: pd.Series) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """
-    For a series of states (NaN/None = blank), per bar:
-      held       -- bars in the current run, counting this bar (first bar = 1)
-      since      -- label (ts / trade_date) of the run's first bar
-      from_start -- True if the run began on the series' first non-blank bar, i.e.
-                    the side was already there when the history starts (no cross seen)
-    Blank bars give NaN / None / False. A blank bar ends a run.
-    """
-    blank = values.isna()
-    key = values.astype(object).where(~blank, None)
-    changed = key.ne(key.shift()) | blank | blank.shift(fill_value=True)
-    run_id = changed.cumsum()
-    held = values.groupby(run_id).cumcount() + 1
-    since = labels.groupby(run_id).transform("first")
-    pos = pd.Series(np.arange(len(values)), index=values.index)
-    run_start = pos.groupby(run_id).transform("first")
-    first_valid = pos[~blank].iloc[0] if (~blank).any() else -1
-    from_start = (run_start == first_valid) & ~blank
-    return held.astype(float).mask(blank), since.mask(blank), from_start
-
-
-def _labels(df: pd.DataFrame) -> pd.Series:
-    if "ts" in df.columns:
-        return df["ts"]
-    if "trade_date" in df.columns:
-        return df["trade_date"]
-    return pd.Series(df.index, index=df.index)
-
-
 def trend_macd(df: pd.DataFrame) -> pd.DataFrame:
     """
     MACD vs zero (identical to EMA12 vs EMA26). Adds per candle:
@@ -296,10 +276,7 @@ def macd_all(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 # --- Manual check: MACD on the latest bars, to compare with TradingView ---------
-
-_DEFAULT_DOMAIN = {"1d": "indices", "1w": "indices", "1mo": "indices",
-                   "5m": "universe_intraday", "15m": "universe_intraday",
-                   "60m": "universe_intraday"}
+# (_DEFAULT_DOMAIN: timeframe -> R2 domain, now from indicator_common/timeframes.py)
 
 if __name__ == "__main__":
     #   python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd

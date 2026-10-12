@@ -6,7 +6,7 @@ the known differences, fix the common errors, and add the next indicator the sam
 of each indicator lives in its spec (`EMA.md`, `MACD.md`, `ADX.md` — §0 of each is the plain‑English
 definition). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 1 — 2026‑10‑12. Covers: indicator reader, EMA, MACD, ADX / DMI._
+_Version 1.2 — 2026‑10‑12. Covers: indicator reader, EMA, MACD, ADX / DMI, shared helpers (`indicator_common/`)._
 
 ---
 
@@ -20,6 +20,21 @@ _Version 1 — 2026‑10‑12. Covers: indicator reader, EMA, MACD, ADX / DMI._
 
 Read them together: EMA = direction, MACD = momentum, ADX = strength. All three are pure calculations on
 stored candles: **they never fetch data and never write anything except their own log files.**
+
+**Shared helpers** live in `backend/modules/Module_F_Tech_Indicators_Funnel/indicator_common/`, beside
+`trend_indicators/` (and the coming `oscillators/`). Every indicator uses them; no indicator imports from another
+indicator's folder:
+
+| File | Holds |
+|---|---|
+| `smoothing.py` | `ema_tradingview` (Pine `ta.ema`), `rma_tradingview` (Pine `ta.rma`, Wilder) |
+| `crosses.py` | `cross_above`, `cross_below` (Pine `ta.crossover` / `ta.crossunder`), `runs` (held / since / from start), `bar_labels` |
+| `timeframes.py` | `TIMEFRAMES`, `TF_NAME`, `DEFAULT_DOMAIN` (timeframe → R2 domain), `UNIT` / `NOW` / `PREV` words, `is_intraday` |
+| `text_format.py` | `num`, `to_int`, `iso`, `when`, `units`, `price`, `signed` — JSON‑safe numbers and dates for snapshot texts |
+
+Moved there 2026‑10‑12 unchanged; `ema.py`, `macd.py`, `macd_snapshot.py`, `adx.py` still export the old names
+(`ema_tradingview`, `_runs`, `_DEFAULT_DOMAIN`, `_num` …), so older imports keep working. New code imports from
+`indicator_common` directly.
 
 ---
 
@@ -115,20 +130,25 @@ python -m …trend_indicators.ema.ema_snapshot [--key KEY] [--domain DOMAIN] [--
 
 ```
 python -m …trend_indicators.macd.macd [--key KEY] [--timeframe 1d|1w|1mo|60m|15m|5m|all] [--domain DOMAIN]
-                                      [--bars N] [--dates D ...] [--ohlc] [--state] [--crosses N]
+                                      [--bars N] [--dates D ...] [--ohlc] [--state | --crosses N | --turns N | --events N]
 python -m …trend_indicators.macd.macd_snapshot [--key KEY] [--name NAME] [--timeframes TF ...] [--directions both|above] [--json]
 ```
 | Command / flag | Prints | Log (`logs\macd_test_logs\`) |
 |---|---|---|
 | `macd` | 1D, last 3 candles: close, histogram, MACD, signal, colour, PPO % (TradingView legend order) | `macd_check_1d.log` |
 | `--timeframe 60m` | same for that timeframe (domain picked automatically) | `macd_check_60m.log` |
-| `--timeframe all` | all six timeframes in one run + summary table | `macd_check_all.log` |
+| `--timeframe all` | all six timeframes in one run (+ summary table with `--state`) | `macd_check_all.log` / `macd_check_all_<mode>.log` |
 | `--bars N` / `--dates …` | last N candles / those dates. Intraday: every candle of the date. Weekly: give the week's **Monday** (`2026-10-05`); monthly: the **1st** (`2026-09-01`). A date with no candle prints "no bar on this date" | per timeframe |
 | `--ohlc` | adds open/high/low — use it to prove you hovered the same candle as Fortuna | per timeframe |
-| `--state` | label, histogram state and how long, MACD vs 0 and vs signal: held / since, last crosses | per timeframe |
-| `--crosses N` | latest N events: zero crosses, signal crosses (with zone), momentum turns | per timeframe |
+| `--state` | label, histogram state and how long, MACD vs 0 and vs signal: held / since, last crosses | `macd_check_<tf>_state.log` |
+| `--crosses N` | latest N **crosses**: zero‑line and signal‑line (with zone) | `macd_check_<tf>_crosses.log` |
+| `--turns N` | latest N **momentum turns** — every histogram colour change (useful on 5m/15m/60m) | `macd_check_<tf>_turns.log` |
+| `--events N` | crosses + turns together (the pre‑12 Oct `--crosses` list) | `macd_check_<tf>_events.log` |
 | `macd_snapshot` | package + texts for all six timeframes + summary line | `macd_snapshot.log` |
 | `--timeframes 1d 60m` | only those timeframes | |
+
+`--state`, `--crosses`, `--turns`, `--events` are one at a time. Why crosses and turns are separate: `MACD.md` §6.1.
+In the snapshot a momentum turn on 1M/1W/1D is a plain text line (no ⚡, no alert); on 60m/15m/5m it has ⚡ and is an alert.
 
 ### 4.4 ADX / DMI (six timeframes)
 
@@ -147,12 +167,19 @@ crosses (each tagged with the ADX at the cross and its band) and ADX crossing 25
 ```
 python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py -v        # 19 tests (screen only)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema -v      # 63 → logs\ema_test_logs\test_ema.log
-python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd -v     # 60 → logs\macd_test_logs\test_macd.log
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd -v     # 66 → logs\macd_test_logs\test_macd.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx -v      # 61 → logs\adx_test_logs\test_adx.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators -v          # all three; each log still gets only its own tests
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/indicator_common -v          # 52 → logs\indicator_common_test_logs\test_indicator_common.log
+python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 242 (63 + 66 + 61 + 52)
 ```
 **Expected: every test PASSED, last line `summary: N passed`, `exit status: 0`.** Run the tests after any
-code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9.
+code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9;
+`indicator_common`: 33 checks that each old name is the shared object (nothing can drift) + hand‑worked EMA / RMA,
+a plain‑loop RMA reference, the cross rule, runs, timeframe map, text formatting.
+
+**After touching anything in `indicator_common/`:** run the full test command above **and** the §6.1 health
+check (`ema`, `macd`, `adx --dates 2026-10-09`) — every indicator depends on it.
 
 ---
 
@@ -265,8 +292,9 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | Folder | Files |
 |---|---|
 | `ema_test_logs\` | `ema_check.log` (any `ema` run) · `ema_snapshot.log` · `test_ema.log` |
-| `macd_test_logs\` | `macd_check_<1d/1w/1mo/60m/15m/5m/all>.log` · `macd_snapshot.log` · `test_macd.log` |
+| `macd_test_logs\` | `macd_check_<tf>.log` (bars/dates) · `macd_check_<tf>_<state/crosses/turns/events>.log` · `macd_snapshot.log` · `test_macd.log` (`<tf>` = 1d/1w/1mo/60m/15m/5m/all) |
 | `adx_test_logs\` | `adx_check_<1d/1w/1mo/60m/15m/5m/all>.log` · `adx_snapshot.log` · `test_adx.log` |
+| `indicator_common_test_logs\` | `test_indicator_common.log` |
 
 All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in `backend\logs\` directly.
 
@@ -278,15 +306,17 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
    from the chart's settings dialog first.
 2. **Spec doc** `<NAME>.md` here, same layout: §0 plain English, scope, input, TradingView parity (formula in
    Pine terms), bands/labels, states/events, texts, code map, open items, tests, verification record, change log.
-3. **Folder** `trend_indicators/<name>/` (or a new family folder) with `__init__.py`, `<name>.py`,
+3. **Folder** `trend_indicators/<name>/` or `oscillators/<name>/` (RSI, Stochastic RSI and later CCI, Williams %R
+   go in `oscillators/`) with `__init__.py`, `<name>.py`,
    `<name>_snapshot.py`, `test_<name>.py`, `test_<name>_snapshot.py`, `conftest.py`.
 4. **`<name>.py`:** pure functions (no I/O) — `compute_<name>(df)` returns a copy with new columns and raises
    `ValueError` on bad input; states/labels as separate functions; a `__main__` manual check with the standard
    flags (`--timeframe … all --domain --bars --dates --ohlc --state --crosses`) logging to screen **and**
    `logs/<name>_test_logs/<name>_check_<tf>.log` (first line = the command).
-5. **Reuse, don't copy:** `ema_tradingview`, `cross_above`, `cross_below` (`ema.py`), `rma_tradingview`
-   (`adx.py`), `_runs` (`macd.py`), `_DEFAULT_DOMAIN` and formatting helpers (`macd_snapshot.py`). Moving these
-   into one shared helper module is an open item.
+5. **Reuse, don't copy — import from `indicator_common/` only** (§1): `smoothing` (`ema_tradingview`,
+   `rma_tradingview`), `crosses` (`cross_above`, `cross_below`, `runs`, `bar_labels`), `timeframes`
+   (`TIMEFRAMES`, `TF_NAME`, `DEFAULT_DOMAIN`, words), `text_format`. Never import from another indicator's folder.
+   A helper a second indicator needs goes into `indicator_common/` (moved unchanged, with a test), not copied.
 6. **`<name>_snapshot.py`:** `snapshot_from_bars` (pure) + `build_<name>_snapshot` that **never raises**
    (result with ok / errors / summary) + `__main__` logging to `<name>_snapshot.log`.
 7. **Tests:** an independent plain‑loop reference of TradingView's formula, hand‑worked small cases, the chart's
@@ -313,6 +343,10 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 ---
 
 ## 12. Change log
+- **v1.2 — 2026‑10‑12.** Shared helpers `indicator_common/` (§1 table, §4.5 tests 52 / total 242 and "after touching
+  indicator_common" rule, §9 log folder, §10 steps 3 and 5: `oscillators/` folder, import only from
+  `indicator_common`).
+- **v1.1 — 2026‑10‑12.** MACD `--crosses` / `--turns` / `--events` and per‑mode log files.
 - **v1 — 2026‑10‑12.** First version: setup, daily routine, every command and flag, stock usage, parity
   procedure with reference values, known differences, diagnostics (incl. the bar‑count probe), troubleshooting,
   log map, new‑indicator pattern.

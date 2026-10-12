@@ -6,7 +6,7 @@ define EMA signals in different ways; this doc records only what **Fortuna** doe
 indicator (RSI, StochRSI, MACD, S&R … follow the same layout), stored in
 `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 2.3 — 2026‑10‑12 (§0 plain‑English definition added; how to run without help: `Fortuna-Indicators-Runbook.md`). Code: `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/`._
+_Version 2.4 — 2026‑10‑12 (`ema_tradingview` and the cross functions moved to `indicator_common/`, §12). v2.3 — §0 plain‑English definition added; how to run without help: `Fortuna-Indicators-Runbook.md`). Code: `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/`._
 
 ---
 
@@ -356,6 +356,13 @@ All EMA files live in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_ind
 | `test_ema.py` (43 tests), `test_ema_snapshot.py` (20 tests) | unit tests, no R2 |
 | `conftest.py` | pytest hook: PASSED/FAILED per test + failure text + summary → `logs/ema_test_logs/test_ema.log` (overwritten each run; only this folder's tests) |
 
+**Shared helpers (2026‑10‑12):** the EMA formula `ema_tradingview` (§4) and the cross rule `cross_above` /
+`cross_below` (§5.1) now live in `Module_F_Tech_Indicators_Funnel/indicator_common/` (`smoothing.py`,
+`crosses.py`) because MACD, ADX and the coming oscillators use them too. Moved unchanged; `ema.py` imports them and
+still exports the same names, so `from …ema.ema import ema_tradingview` keeps working. Proof: all 63 EMA tests pass
+unchanged, before/after outputs identical, and `ema --dates 2026-10-09` still prints 22,520.37 … 24,077.44.
+`ema_snapshot.py` was not changed.
+
 `ema.py` functions are pure (no I/O, nothing instrument‑specific). Full chain on 6,657 bars ≈ 70 ms.
 Reader: `market_data/upstox/indicator_ohlcv_reader.py` (19 tests since MACD part 1; 13 at EMA time).
 
@@ -428,3 +435,4 @@ Reader tests (`test_indicator_ohlcv_reader.py`, 19) are listed in `MACD.md` §14
 | 2026‑10‑12 | v2.1 — §3.6 broker‑hosted TradingView charts (tv.dhan.co for Nifty, tv.upstox / pro.upstox for stocks); §11 multi‑timeframe EMA logged as an open item (reader now supports intraday). |
 | 2026‑10‑12 | v2.2 — file logging for the manual checks and tests: `ema` → `logs/ema_test_logs/ema_check.log`, `ema_snapshot` → `ema_snapshot.log`, pytest → `test_ema.log` (new `ema/conftest.py`); only the `__main__` blocks changed, EMA maths untouched; re‑run output identical. §13 testing and verification record (every unit test, how it was cross‑checked, known discrepancies). |
 | 2026‑10‑12 | v2.3 — §0 "What EMA is, how it works, how to read it" (plain English, strengths/weaknesses, how it fits with MACD/ADX); reader test count corrected (19). Commands, verification procedure and troubleshooting collected in `Fortuna-Indicators-Runbook.md`. |
+| 2026‑10‑12 | v2.4 — `ema_tradingview`, `cross_above`, `cross_below` moved unchanged to `indicator_common/` (`smoothing.py`, `crosses.py`), re‑exported from `ema.py`; EMA results identical (§12). |

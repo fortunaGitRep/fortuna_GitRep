@@ -44,10 +44,13 @@ Standards applied: single responsibility (ADX maths only), pure function (no I/O
 input validation, vectorised pandas, unit tests (test_adx.py).
 Deferred (with reasons):
   - Logging: none inside the pure function (bad input raises); the manual check logs.
-  - The timeframe -> domain map is repeated from macd.py, and the run-length helper
-    (_runs) is imported from macd.py; move both into one shared indicator helper
-    module when the next indicator needs them.
   - States / events / texts: parts 2-3, by agreement (baby steps).
+
+Shared helpers (2026-10-12): rma_tradingview, cross_above / cross_below, the run
+helper (_runs), the bar-label helper (_labels) and the timeframe -> domain map
+(_DEFAULT_DOMAIN) now come from ../../indicator_common/, moved unchanged (they were
+here, in ema.py and in macd.py). rma_tradingview and _DEFAULT_DOMAIN are still
+exported from this file under the old names.
 """
 
 from __future__ import annotations
@@ -55,34 +58,22 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema import (
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.crosses import (
+    bar_labels as _labels,
     cross_above,
     cross_below,
+    runs as _runs,
 )
-from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd import _runs
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.smoothing import (  # noqa: F401
+    rma_tradingview,       # re-exported: tests and callers use adx.rma_tradingview
+)
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.timeframes import (
+    DEFAULT_DOMAIN as _DEFAULT_DOMAIN,   # re-exported under the old name
+)
 
 DI_LEN, ADX_LEN = 14, 14
 ADXR_LOOKBACK = 13          # n - 1 candles back -- matches TradingView (module docstring)
 ADX_COLS = ("plus_di", "minus_di", "dx", "adx", "adxr")
-
-
-def rma_tradingview(series: pd.Series, period: int) -> pd.Series:
-    """
-    Pine ta.rma (Wilder's average) over a series that may start with blanks:
-    alpha = 1/period, seeded with the simple average of the first `period`
-    non-blank values, blank before that.
-    """
-    out = pd.Series(np.nan, index=series.index, dtype="float64")
-    valid = series.dropna()
-    if len(valid) < period:
-        return out
-    start = series.index.get_loc(valid.index[0])
-    values = series.iloc[start:].to_numpy(dtype="float64")
-    tail = values[period - 1:].copy()
-    tail[0] = values[:period].mean()
-    rma = pd.Series(tail).ewm(alpha=1.0 / period, adjust=False).mean().to_numpy()
-    out.iloc[start + period - 1:] = rma
-    return out
 
 
 def _validate(df: pd.DataFrame, di_len: int, adx_len: int, adxr_lookback: int) -> None:
@@ -165,14 +156,6 @@ def strength_band(adx: pd.Series) -> pd.Series:
     return out
 
 
-def _labels(df: pd.DataFrame) -> pd.Series:
-    if "ts" in df.columns:
-        return df["ts"]
-    if "trade_date" in df.columns:
-        return df["trade_date"]
-    return pd.Series(df.index, index=df.index)
-
-
 def adx_states(df: pd.DataFrame) -> pd.DataFrame:
     """
     From compute_adx output, adds per candle:
@@ -245,10 +228,7 @@ def adx_all(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 # --- Manual check: ADX on the latest bars, to compare with TradingView ---------
-
-_DEFAULT_DOMAIN = {"1d": "indices", "1w": "indices", "1mo": "indices",
-                   "5m": "universe_intraday", "15m": "universe_intraday",
-                   "60m": "universe_intraday"}
+# (_DEFAULT_DOMAIN: timeframe -> R2 domain, now from indicator_common/timeframes.py)
 
 if __name__ == "__main__":
     #   python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx

@@ -30,7 +30,9 @@ Data date: "as of" the latest stored candle; weekly / monthly = "to date".
 
 Standards applied: single responsibility (assembly + wording), pure core,
 never-raise boundary with one log line per timeframe, JSON-safe output, unit tests
-(test_adx_snapshot.py). Formatting helpers are shared with macd_snapshot (imported).
+(test_adx_snapshot.py). Shared helpers (2026-10-12): the run helper, timeframe
+words (_NOW, _PREV, _UNIT -- previously repeated here) and formatting helpers come
+from ../../indicator_common/; this file no longer imports from macd/.
 Deferred: strong/weak verdicts beyond the conventional bands (to test on Nifty);
 "ADX turning down from above 40" (trend exhaustion) -- candidate, not built.
 """
@@ -44,32 +46,34 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.crosses import runs as _runs
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.text_format import (
+    iso as _iso,
+    num as _num,
+    price as _p,
+    to_int as _int,
+    units as _units,
+    when as _when,
+)
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.timeframes import (
+    NOW as _NOW,
+    PREV as _PREV,
+    TF_NAME,
+    TIMEFRAMES,
+    UNIT as _UNIT,
+    is_intraday as _intraday,
+)
 from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx import (
     _DEFAULT_DOMAIN,
     LABEL_NA,
     LEVEL,
     adx_all,
 )
-from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd import _runs
-from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot import (
-    TF_NAME,
-    TIMEFRAMES,
-    _int,
-    _intraday,
-    _iso,
-    _num,
-    _p,
-    _units,
-    _when,
-)
 
 logger = logging.getLogger(__name__)
 
 DIRECTIONS = ("both", "above")
 RECENT_BARS = 5
-_NOW = {"1mo": "This month", "1w": "This week", "1d": "Today"}
-_PREV = {"1mo": "last month", "1w": "last week", "1d": "yesterday"}
-_UNIT = {"1mo": "month", "1w": "week", "1d": "day"}
 BAND_WORDS = {
     "no_trend": "no trend, weak signal",
     "forming": "trend forming",

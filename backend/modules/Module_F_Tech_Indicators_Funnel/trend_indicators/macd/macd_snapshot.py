@@ -39,17 +39,41 @@ Standards applied: single responsibility (assembly + wording only), pure core,
 never-raise boundary with one log line per timeframe outcome, JSON-safe output,
 unit tests (test_macd_snapshot.py).
 Deferred: strong/weak verdicts (no thresholds adopted -- MACD.md section 8); divergence.
+
+Shared helpers (2026-10-12): TIMEFRAMES, TF_NAME, the time words (_UNIT, _NOW, _PREV)
+and the formatting helpers (_num, _int, _intraday, _iso, _when, _units, _p, _sp) now
+live in ../../indicator_common/ (timeframes.py, text_format.py), moved unchanged; they
+are imported here under the old names.
 """
 
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import pandas as pd
 
+# Shared timeframe words and formatting helpers (moved to indicator_common 2026-10-12,
+# unchanged). Imported under their old names, so this file reads as before and
+# `from ...macd_snapshot import TIMEFRAMES, TF_NAME, _num, ...` keeps working.
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.text_format import (  # noqa: F401
+    iso as _iso,
+    num as _num,
+    price as _p,
+    signed as _sp,
+    to_int as _int,
+    units as _units,
+    when as _when,
+)
+from modules.Module_F_Tech_Indicators_Funnel.indicator_common.timeframes import (  # noqa: F401
+    NOW as _NOW,
+    PREV as _PREV,
+    TF_NAME,
+    TIMEFRAMES,
+    UNIT as _UNIT,
+    is_intraday as _intraday,
+)
 from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd import (
     _DEFAULT_DOMAIN,
     HIST_COLOUR,
@@ -59,14 +83,9 @@ from modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd import (
 
 logger = logging.getLogger(__name__)
 
-TIMEFRAMES = ("1mo", "1w", "1d", "60m", "15m", "5m")      # longest first
-TF_NAME = {"1mo": "1M", "1w": "1W", "1d": "1D", "60m": "60m", "15m": "15m", "5m": "5m"}
 DIRECTIONS = ("both", "above")
 RECENT_BARS = 5        # a cross is "recent" (holding line) for this many candles
 
-_UNIT = {"1mo": "month", "1w": "week", "1d": "day"}       # intraday -> "candle"
-_NOW = {"1mo": "This month", "1w": "This week", "1d": "Today"}
-_PREV = {"1mo": "last month", "1w": "last week", "1d": "yesterday"}
 _MOMENTUM = {
     "above_growing": "bullish momentum growing",
     "above_fading": "bullish momentum fading",
@@ -89,60 +108,7 @@ _BEFORE = {"above_growing": "growing bullish", "above_fading": "fading bullish",
            "below_growing": "growing bearish", "below_fading": "fading bearish"}
 
 
-# --- small helpers ---------------------------------------------------------------
-
-def _num(x: Any) -> Optional[float]:
-    """JSON-safe float: NaN/None -> None."""
-    if x is None:
-        return None
-    try:
-        f = float(x)
-    except (TypeError, ValueError):
-        return None
-    return None if math.isnan(f) else f
-
-
-def _int(x: Any) -> Optional[int]:
-    f = _num(x)
-    return None if f is None else int(f)
-
-
-def _intraday(tf: str) -> bool:
-    return tf in ("5m", "15m", "60m")
-
-
-def _iso(x: Any, tf: str) -> Optional[str]:
-    if x is None or (isinstance(x, float) and math.isnan(x)):
-        return None
-    ts = pd.Timestamp(x)
-    return ts.isoformat() if _intraday(tf) else ts.date().isoformat()
-
-
-def _when(x: Any, tf: str, ref_year: int) -> str:
-    """Human date for a candle: '9 Oct', '9 Oct 15:15', 'week of 5 Oct', 'Oct 2026'."""
-    ts = pd.Timestamp(x)
-    day = f"{ts.day} {ts:%b}" + ("" if ts.year == ref_year else f" {ts.year}")
-    if tf == "1mo":
-        return f"{ts:%b %Y}"
-    if tf == "1w":
-        return f"week of {day}"
-    if _intraday(tf):
-        return f"{day} {ts:%H:%M}"
-    return day
-
-
-def _units(n: int, tf: str) -> str:
-    unit = _UNIT.get(tf, "candle")
-    return f"{n} {unit}" + ("" if n == 1 else "s")
-
-
-def _p(x: Optional[float]) -> str:
-    return "n/a" if x is None else f"{x:,.2f}"
-
-
-def _sp(x: Optional[float]) -> str:
-    return "n/a" if x is None else f"{x:+,.2f}"
-
+# --- small helpers (MACD-only; the shared ones are imported above) -----------------
 
 def _colour(state: Any) -> Optional[str]:
     return HIST_COLOUR.get(state) if isinstance(state, str) else None

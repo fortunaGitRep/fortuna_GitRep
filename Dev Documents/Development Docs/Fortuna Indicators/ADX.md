@@ -5,7 +5,7 @@ settings, rules, thresholds, outputs, how parity with TradingView was proven, te
 discrepancies. Records only what **Fortuna** does. Same layout as `EMA.md` / `MACD.md`, stored in
 `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 1.1 — 2026‑10‑12 (§0 plain‑English definition; runbook `Fortuna-Indicators-Runbook.md`). v1 — **ADX complete (parts 1–3): the five DMI lines, strength band, slope, direction,
+_Version 1.2 — 2026‑10‑12 (shared helpers moved to `indicator_common/`, §7). v1.1 — (§0 plain‑English definition; runbook `Fortuna-Indicators-Runbook.md`). v1 — **ADX complete (parts 1–3): the five DMI lines, strength band, slope, direction,
 events, labels and texts on all six timeframes; daily equal to TradingView (tv.dhan) to 4 decimals; 7 cross
 dates checked on the chart.** Code: `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx/`._
 
@@ -182,16 +182,20 @@ All in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx/`:
 
 | File / function | Does |
 |---|---|
-| `adx.py` → `rma_tradingview(series, n)` | Wilder's average, seeded from the first n non‑blank values |
+| `adx.py` → `rma_tradingview(series, n)` | Wilder's average, seeded from the first n non‑blank values — now lives in `indicator_common/smoothing.py` (also used by RSI); still importable from `adx.py` |
 | `adx.py` → `compute_adx(df, di_len=14, adx_len=14, adxr_lookback=13)` | adds `plus_di, minus_di, dx, adx, adxr`; pure; ValueError on bad input |
 | `adx.py` → `strength_band`, `adx_states`, `adx_label`, `adx_all` | §4–5 |
 | `adx.py` → `__main__` | `--timeframe {…,all} --bars --dates --ohlc --state --crosses N` → screen + `logs/adx_test_logs/adx_check_<tf>.log` |
 | `adx_snapshot.py` → `snapshot_from_bars`, `summary_line`, `build_adx_snapshot` | §6; manual check → `logs/adx_test_logs/adx_snapshot.log` |
 | `test_adx.py` (43), `test_adx_snapshot.py` (18), `conftest.py` | tests → `logs/adx_test_logs/test_adx.log` |
 
-Shared pieces (imported, not copied): `cross_above` / `cross_below` (ema.py), `_runs` (macd.py), formatting
-helpers (macd_snapshot.py). Deferred: move these and the timeframe→domain map into one shared helper module
-when the next indicator needs them.
+**Shared helpers (2026‑10‑12):** ADX imports everything shared from `Module_F_Tech_Indicators_Funnel/indicator_common/`
+and **no longer imports from `macd/` or `ema/`**: `rma_tradingview` (`smoothing.py`, moved from here),
+`cross_above` / `cross_below`, `runs`, `bar_labels` (`crosses.py`), `DEFAULT_DOMAIN`, `TIMEFRAMES`, `TF_NAME`
+and the `_NOW` / `_PREV` / `_UNIT` words that `adx_snapshot.py` used to repeat (`timeframes.py`), formatting
+helpers (`text_format.py`). Moved unchanged; `rma_tradingview` and `_DEFAULT_DOMAIN` still importable from `adx.py`.
+Proof: 61 ADX tests unchanged and passing, before/after outputs identical, `adx --dates 2026-10-09` still
+9.9922 / 38.3904 / 58.6951 / 43.8447 / 37.4798.
 
 **Run** (from `backend/`):
 ```
@@ -314,3 +318,4 @@ no trend) · 9 Sep ADX above 25 (trend confirmed, down). 804 events in history.
 |---|---|
 | 2026‑10‑12 | v1 — ADX parts 1–3 built: `compute_adx` (five TradingView DMI lines; ADXR 13 back confirmed), states / events / label, DI‑cross ADX tag, snapshot texts + summary line, manual check (`--state`, `--crosses`, `--timeframe all`, `--ohlc`), logging to `logs/adx_test_logs/`. Daily exact to 4 decimals; 7 cross dates on the chart; 1h feed difference recorded (§10.3). Tests 61. |
 | 2026‑10‑12 | v1.1 — §0 "What ADX / DMI is, how it works, how to read it" (step‑by‑step method, reading table, strengths/weaknesses). Runbook: `Fortuna-Indicators-Runbook.md`. Noted: `adx_snapshot` reads D/W/M from `indices` only — stocks need a domain option (open item). |
+| 2026‑10‑12 | v1.2 — shared helpers moved unchanged to `indicator_common/` (`rma_tradingview` from here; crosses, runs, timeframe map, words, formatting); ADX no longer imports from `macd/`; results identical (§7). |
