@@ -5,9 +5,53 @@ formulas, settings, rules, thresholds and outputs Fortuna uses. Other books and 
 different ways; this doc records only what **Fortuna** does. Same layout as `EMA.md`, stored in
 `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 3 — 2026‑10‑12 — **MACD complete (parts 1–4): values, trend / momentum states, labels, events and
+_Version 3.1 — 2026‑10‑12 (§0 plain‑English definition; runbook `Fortuna-Indicators-Runbook.md`). v3 — **MACD complete (parts 1–4): values, trend / momentum states, labels, events and
 texts on all six timeframes, verified against TradingView (tv.dhan) — values and cross dates exact.** Code:
 `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd/`._
+
+---
+
+## 0. What MACD is, how it works, how to read it (plain English)
+
+**What it is.** MACD (Moving Average Convergence Divergence, Gerald Appel, 1970s) measures **the gap
+between a fast and a slow EMA** of the close. When the fast EMA pulls away above the slow one, upward
+momentum is building; when the gap shrinks, the move is losing steam. It is a **momentum and trend**
+indicator, drawn in its own panel under the price chart.
+
+**How it works — three things TradingView draws:**
+
+| Line | What it is | Plain meaning |
+|---|---|---|
+| **MACD line** (blue) | EMA12 − EMA26 of the close, in index points | above 0 = the 12 EMA is above the 26 EMA (short‑term trend up); below 0 = down. The further from 0, the stronger the push. |
+| **Signal line** (orange) | EMA9 of the MACD line | a smoothed, slower copy of MACD — the "trigger" line |
+| **Histogram** (bars) | MACD − signal | how far MACD is from its own average = is momentum **accelerating or slowing** |
+
+**Histogram colours (TradingView's four):** dark green = above 0 and growing (bullish momentum
+accelerating) · light green = above 0 but shrinking (bullish momentum fading) · light red = below 0 but
+shrinking (bearish momentum fading) · dark red = below 0 and growing (bearish momentum accelerating) (§3.3).
+A light colour after a dark one is the earliest warning that the move is tiring.
+
+**How to read it — Fortuna's two views:**
+1. **Trend (`trend_macd`) — MACD vs 0.** Above zero = uptrend, below = downtrend. A **zero‑line cross** is
+   the same moment as the 12 EMA crossing the 26 EMA (slow, confirmed).
+2. **Momentum (`momentum_macd`) — MACD vs signal and the histogram.** MACD crossing **above** the signal =
+   momentum turning up; **below** = turning down. Where it happens matters: a bullish cross **below zero** is
+   an early reversal sign inside a downtrend; **above zero** it is the uptrend resuming.
+3. **Combined label:** both up = STRONG UPTREND; trend up but momentum down = UPTREND PAUSING (pullback);
+   trend down but momentum up = DOWNTREND WEAKENING (bounce possible); both down = STRONG DOWNTREND (§7).
+
+Example (Nifty daily, 9 Oct 2026): MACD −360.57 below 0 and below the signal −331.79 → STRONG DOWNTREND;
+histogram −28.78 light red → bearish momentum fading for 1 day ("watch for a bullish MACD cross").
+
+**Good at:** spotting momentum turning before price structure (EMA stack) does, and telling a pullback
+from a reversal. **Weak at:** (1) **whipsaws** — on 5m/15m the signal line is crossed many times a day;
+(2) **no overbought/oversold levels** — MACD is in points and unbounded, so "−360" has no fixed meaning and
+can't be compared across instruments (that is what the extra **PPO** column is for: MACD as % of price);
+(3) it **lags** (built from EMAs). **Divergence** (price makes a new low but MACD doesn't) is a well‑known
+use; Fortuna does not detect it yet.
+
+**How it fits:** EMA = direction, MACD = momentum, ADX = strength. A MACD cross with ADX below 20 is
+happening in chop (see `ADX.md` §0).
 
 ---
 
@@ -479,7 +523,7 @@ Alerts in that run: 1D momentum turn (bearish fading, counted bullish); 15m sign
 | Part | What | Status |
 |---|---|---|
 | 1 | Reader rule 2 + allow 60m/15m/5m in `indicator_ohlcv_reader.py` | ✅ built 2026‑10‑11; 19 reader tests pass; live run: 5m and 15m each dropped 94 after‑close bars on 89 days, 60m none; the 3 Muhurat evenings (2022‑10‑24, 2023‑11‑12, 2024‑11‑01) kept — 89 + 3 = the 92 days the audit found |
-| 2 | `macd.py` → `compute_macd(df)` + parity on all six timeframes; manual check with file logging and `--ohlc` | ✅ built 2026‑10‑11/12; 21 tests pass; parity §10.3 |
+| 2 | `macd.py` → `compute_macd(df)` + parity on all six timeframes; manual check with file logging and `--ohlc` | ✅ built 2026‑10‑11/12; 21 tests at that step (39 after part 3); parity §10.3 |
 | 3 | `trend_macd(df)`, `momentum_macd(df)`, `macd_label(df)`, `macd_all(df)`; manual check `--state`, `--crosses N`, `--timeframe all` | ✅ built 2026‑10‑12; 18 tests; cross dates checked on the chart (§10.4) |
 | 4 | `macd_snapshot.py`: package + texts per timeframe + summary line; never raises | ✅ built 2026‑10‑12; 21 tests; live run §10.6. **60 MACD tests pass on Windows.** |
 
@@ -501,12 +545,13 @@ Alerts in that run: 1D momentum turn (bearish fading, counted bullish); 15m sign
   other. Also to test later: a minimum hold before a momentum turn is texted.
 - **Frontend:** the snapshot package (§9) is ready for the indicators frontend (chart + texts), which is
   an important open item in the build log.
-- **File logging for the other manual checks** (`indicator_ohlcv_reader`, `ema`, `ema_snapshot`) — same
-  pattern as `macd` (output to screen + a log file), to be done after MACD (Ash, 2026‑10‑11).
+- **File logging for the reader's manual check** (`indicator_ohlcv_reader`) — still screen only. `ema` and
+  `ema_snapshot` got file logging 2026‑10‑12 (`EMA.md` v2.2).
 - **EMA on other timeframes** — open item: give EMA the same multi‑timeframe treatment (reader + "bars"
   wording); EMA code left untouched for now.
 - SMA oscillator / signal types and other settings (5/35/5 etc.) — not used.
 - **Stocks:** corporate‑action adjustment (see `EMA.md` §11) needed before MACD on affected stocks.
+- **Snapshot for stocks:** `build_macd_snapshot` reads 1d/1w/1mo from domain `indices` only — add a domain option (`universe`) with the watchlist work. Manual checks already take `--domain universe`.
 - Volume: not an input to MACD.
 
 ---
@@ -522,7 +567,7 @@ All MACD files in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicat
 | `macd.py` → `hist_states(hist)` | built | the 4 colour states (§3.3); `HIST_COLOUR` maps them to TradingView's colour names |
 | `macd.py` → `_ema_from_first_valid()` | built | runs `ema_tradingview` from the first non‑blank MACD value (signal seed, §3.2) |
 | `macd.py` → `__main__` manual check | built | `--timeframe {1d,1w,1mo,5m,15m,60m}`, `--domain` (default by timeframe), `--key`, `--bars N`, `--dates …`, `--ohlc`; writes screen + `logs/macd_test_logs/macd_check_<timeframe>.log` (overwritten each run; first line = the command) |
-| `test_macd.py` | built | 21 tests: plain‑loop Pine reference, start bars 26/34/35, signal seed, histogram, colour states incl. zero/equal, Ash's 9 Oct numbers, PPO (scale‑free), short history, non‑default index, input not modified, validation |
+| `test_macd.py` | built | 39 tests (21 from part 2 + 18 for states/labels/events, §14.1): plain‑loop Pine reference, start bars 26/34/35, signal seed, histogram, colour states incl. zero/equal, Ash's 9 Oct numbers, PPO (scale‑free), short history, non‑default index, input not modified, validation |
 | `conftest.py` | built | pytest hook: writes PASSED/FAILED per test + failure text + summary to `logs/macd_test_logs/test_macd.log` (overwritten each run; only this folder's tests); no change to the pytest command |
 | `macd.py` → `trend_macd(df)` | built | zero‑line side / held / since / from_start + zero crosses (§5) |
 | `macd.py` → `momentum_macd(df)` | built | signal side / held / since / gap, signal crosses with zone, histogram state held, momentum turns (§6) |
@@ -650,3 +695,4 @@ Part 4 tests (21, `test_macd_snapshot.py`):
 | 2026‑10‑12 | v2 — parts 1–2 built: reader rule 2 (Muhurat kept), `compute_macd`, manual check with file logging (`logs/macd_test_logs/`) and `--ohlc`, pytest log via `conftest.py`. Parity proven on 1M/1W/1D/60m/5m (15m within 0.02), with every mismatch explained (§3.5); broker charts documented (§3.6); weekly/monthly "to date" rule (§2); real outputs (§10.2) and verification record (§10.3). |
 | 2026‑10‑12 | v2.1 — §14 testing and verification record: every unit test (MACD 21, reader 19) with what it checks and where the expected value comes from; live verification; known discrepancies. `conftest.py` now logs only this folder's tests. |
 | 2026‑10‑12 | v3 — parts 3–4 built: `trend_macd`, `momentum_macd`, `macd_label`, `macd_all`, `--state` / `--crosses` / `--timeframe all`, `macd_snapshot.py` (texts per timeframe + summary line, never raises). 15m discrepancy closed (exact on re‑read) → all six timeframes exact; 9 cross dates checked on the chart (§10.4); real state, texts and summary recorded (§10.5, §10.6); tests 60 (§14.1). Open: split crosses vs momentum turns in the event list; frontend. |
+| 2026‑10‑12 | v3.1 — §0 "What MACD is, how it works, how to read it" (three lines, histogram colours, trend vs momentum, strengths/weaknesses); code‑map test count corrected (`test_macd.py` 39). Runbook: `Fortuna-Indicators-Runbook.md`. Noted: `macd_snapshot` reads D/W/M from `indices` only — stocks need a domain option (open item). |

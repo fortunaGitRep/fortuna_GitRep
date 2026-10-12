@@ -4,7 +4,7 @@
 
 Repo root: `D:\Takara\Fortuna\_Repository`
 
-**Last updated:** 2026-10-12 (MACD complete, parts 1–4: intraday reader + reader rule 2, `compute_macd`, trend/momentum states + labels, snapshot texts on 1M/1W/1D/60m/15m/5m — values and cross dates exact vs TradingView on tv.dhan; MACD spec doc v3; MACD + EMA output logging to `logs/`). Earlier: 2026-10-11 (indicator OHLCV reader + EMA parts 1–4 built and verified against TradingView; EMA spec doc; frontend for indicators logged as an important open item). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
+**Last updated:** 2026-10-12 (ADX / DMI complete — five TradingView lines, strength band, direction, DI-cross ADX tag, texts on all six timeframes; daily exact to 4 decimals; spec ADX.md. Earlier same day: MACD complete, parts 1–4: intraday reader + reader rule 2, `compute_macd`, trend/momentum states + labels, snapshot texts on 1M/1W/1D/60m/15m/5m — values and cross dates exact vs TradingView on tv.dhan; MACD spec doc v3; MACD + EMA output logging to `logs/`). Earlier: 2026-10-11 (indicator OHLCV reader + EMA parts 1–4 built and verified against TradingView; EMA spec doc; frontend for indicators logged as an important open item). Earlier: 2026-09-06 (Concurrency for refresh runtime — 4.2x speedup; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed Upstox's historical-candle API excludes the current calendar day)
 
 ---
 
@@ -106,8 +106,9 @@ Thumbs.db
 - [ ] Model string in `ai_gateway.py` (`claude-sonnet-4-5`) not verified against the live API account.
 - [ ] **VIX regime thresholds (25/75/90 percentile) need India-VIX backtesting** — currently sensible defaults, but should be validated/tuned against India VIX's own history before fully trusting the regime bands for live sizing.
 - [ ] **True VIX acceleration flag** — `recent_volatility_stress` is cross-sectional (value unusual recently vs annually), not a time-change. A genuine "VIX rising over N days" flag (multi-day % change) would be a stronger stress signal — future enhancement.
-- [ ] **⚠ IMPORTANT — Frontend for indicators (added 2026-10-11).** Show each indicator's snapshot on the frontend: a small TradingView Lightweight Charts chart (candles + the 6 EMA lines, cross markers) plus the plain-English text panel and all 6 EMA values (today and yesterday). Backend side is ready: `ema_snapshot.build_ema_snapshot()` returns a JSON-safe package (texts, values, stage, 12 check states, alerts); `macd_snapshot.build_macd_snapshot()` (2026-10-12) returns one package per timeframe (1M/1W/1D/60m/15m/5m: TradingView numbers, label, states, events, alerts, texts) plus a summary line. Still needed: an API endpoint returning it, and the React component. Lightweight Charts licence requires the TradingView attribution notice + link on a public page. Must fit the existing unwired frontend (React + Vite + TS, five tabs Inbox/Buy/Exit/Positions/Watchlist on dummy data, `theme.css` teal/coral palette, ~480 px mobile shell, Global Gate UI samples in design phase). Text readability to be refined there (cards, colour for up/down, bold stage).
+- [ ] **⚠ IMPORTANT — Frontend for indicators (added 2026-10-11).** Show each indicator's snapshot on the frontend: a small TradingView Lightweight Charts chart (candles + the 6 EMA lines, cross markers) plus the plain-English text panel and all 6 EMA values (today and yesterday). Backend side is ready: `ema_snapshot.build_ema_snapshot()` returns a JSON-safe package (texts, values, stage, 12 check states, alerts); `macd_snapshot.build_macd_snapshot()` and `adx_snapshot.build_adx_snapshot()` (2026-10-12) return one package per timeframe (1M/1W/1D/60m/15m/5m: TradingView numbers, label, states, events, alerts, texts) plus a summary line. Still needed: an API endpoint returning it, and the React component. Lightweight Charts licence requires the TradingView attribution notice + link on a public page. Must fit the existing unwired frontend (React + Vite + TS, five tabs Inbox/Buy/Exit/Positions/Watchlist on dummy data, `theme.css` teal/coral palette, ~480 px mobile shell, Global Gate UI samples in design phase). Text readability to be refined there (cards, colour for up/down, bold stage).
 - [ ] **MACD event list (added 2026-10-12)** — momentum turns flood `--crosses` (daily: 2,389 events, mostly dark-red/light-red flips). Proposed: `--crosses N` = zero + signal crosses only, `--turns N` = momentum turns, one log per mode so runs don't overwrite each other; later test a minimum hold before a turn is texted.
+- [ ] **Shared indicator helpers (added 2026-10-12)** — ADX imports `_runs` from macd.py and formatting helpers from macd_snapshot.py, and repeats the timeframe→domain map; move these into one shared helper module when the next indicator needs them.
 - [ ] **2h / 4h indicator timeframes (added 2026-10-12)** — not stored; resample from 60m with candles anchored to 09:15 each session as TradingView draws them; needs its own parity check.
 - [ ] **Live / intraday alerting (added 2026-10-12)** — Upstox's historical API never returns the current day, so intraday indicators are a pre-market view today. Needs the live feed (and Upstox's today's-candles API, to confirm), alerts on candle close, optional forming-candle preview. Broker charts' forming-candle values differ slightly (Dhan vs Upstox), so judge live parity on closed candles.
 - [ ] **EMA on other timeframes (added 2026-10-12)** — reader already supports 1W/1M/5m/15m/60m; add the timeframe option to `ema.py` / `ema_snapshot.py` and "candles/weeks/months" wording.
@@ -705,3 +706,36 @@ Fix: `update_instrument()` now checks `last_success_at` against a cooldown *befo
 **Open:** split crosses vs momentum turns in the event list; frontend for indicators (EMA + MACD snapshots ready); live intraday; 2h/4h; EMA on other timeframes; reader file logging.
 
 **Next:** Ash to commit EMA logging + MACD; then the next indicator (RSI / StochRSI / S&R) or the event-list split.
+
+---
+
+### 2026-10-12 (cont'd) — ADX / DMI: values, strength, direction, texts; ADX complete
+
+**Decided:**
+- **ADX next** (Ash asked whether ADX is a good trend-strength indicator: yes as a trend-vs-chop filter, not a direction signal). Reference: tv.dhan "DMI 14 14", which shows **five lines** (+DI, −DI, DX, ADX, ADXR) — all five shown by Fortuna (display rule).
+- **Strength bands** shown as labelled convention: <20 no trend · 20–25 forming · 25–40 trending · 40–50 strong · 50+ very strong (Ash agreed). **Events:** +DI/−DI cross and ADX crossing **25 only** (20 hovers in chop); single-candle ADX turns are not events.
+- **DI-cross tag:** every DI cross carries the ADX at that moment + band ("ADX 10.74 — no trend, weak signal") — Nifty daily had 11 DI crosses May–Jul 2026, all with ADX < 22 (Ash: "yes tag it").
+- **1h discrepancy:** record, don't hunt (Ash).
+
+**Built** (`trend_indicators/adx/`): `adx.py` (`rma_tradingview`, `compute_adx`, `strength_band`, `adx_states`, `adx_label`, `adx_all`; manual check `--timeframe {…,all} --bars --dates --ohlc --state --crosses`), `adx_snapshot.py` (`snapshot_from_bars`, `summary_line`, `build_adx_snapshot` — never raises), `test_adx.py` 43, `test_adx_snapshot.py` 18, `conftest.py` (→ `logs/adx_test_logs/test_adx.log`), `__init__.py`. **61 tests pass on Windows.** Spec: `Fortuna Indicators\ADX.md`.
+
+**Verified (as of 9 Oct close) vs tv.dhan:** daily 9 Oct all five lines exact to 4 decimals (9.9922 / 38.3904 / 58.6951 / 43.8447 / 37.4798); ADXR = ADX 13 candles back (14 back gave 37.8067); ADX at daily crosses 12 Aug (13.20) and 29 Jul (10.74) and at the 5m 9 Oct 15:10 cross (30.47) equal the chart; 7 cross dates on 1M/1W/1D/15m/5m on the chart's own candle. **Known:** 1h within 0.002–0.01 — candles hovered identical, no missing/extra candles since July; most likely a small Sep-2026 high/low/close difference between Upstox and Dhan 1h feeds, fading (MACD, close-only, exact on 1h).
+
+**Where Nifty stood (ADX, 9 Oct close):** 1M trending down · 1W no trend (bears ahead) · 1D strong trend down (ADX 43.8 rising 11 days; −DI led since 12 Aug, ADX > 25 since 9 Sep) · 60m trend forming up · 15m trending up · 5m trending down.
+
+**Next:** Ash to commit ADX; then the next indicator or the open items (MACD event-list split, shared helpers, frontend).
+
+---
+
+### 2026-10-12 (cont'd) — Docs: work without help
+
+Ash: the docs must let him run and check everything without Claude, and must explain what each indicator is and how it works.
+
+**Added:**
+- **`Fortuna Indicators\Fortuna-Indicators-Runbook.md` (new, v1):** setup, daily routine, every command and flag (reader, EMA, MACD, ADX, tests) with what it prints and which log it writes, running on a stock, the TradingView parity procedure with reference values, known differences, diagnostic commands (incl. the 60m bar-count probe), troubleshooting, log map, the pattern for adding the next indicator.
+- **§0 "What it is, how it works, how to read it"** in `EMA.md` (v2.3), `MACD.md` (v3.1), `ADX.md` (v1.1) — plain English, worked on the 9 Oct 2026 Nifty numbers, strengths/weaknesses, how the three fit together (direction / momentum / strength).
+- Stale test counts fixed (MACD code map 39; reader 19 in EMA.md).
+
+**Found while writing:** `macd_snapshot` and `adx_snapshot` read 1d/1w/1mo from `indices` only, so they work for Nifty but not yet for stocks (manual checks do, via `--domain universe`). Open item — add a domain option with the watchlist work.
+
+**Next:** Ash to commit ADX + docs.

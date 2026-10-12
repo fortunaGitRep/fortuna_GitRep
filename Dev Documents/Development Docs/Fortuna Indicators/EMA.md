@@ -6,7 +6,43 @@ define EMA signals in different ways; this doc records only what **Fortuna** doe
 indicator (RSI, StochRSI, MACD, S&R … follow the same layout), stored in
 `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 2.2 — 2026‑10‑12. Code: `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/`._
+_Version 2.3 — 2026‑10‑12 (§0 plain‑English definition added; how to run without help: `Fortuna-Indicators-Runbook.md`). Code: `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema/`._
+
+---
+
+## 0. What EMA is, how it works, how to read it (plain English)
+
+**What it is.** An EMA (Exponential Moving Average) is an average of past closing prices that gives
+**more weight to recent days**. A simple average treats a close from 50 days ago the same as yesterday's; an
+EMA lets older closes fade out gradually, so it turns sooner when the price turns.
+
+**How it works.** Each day the EMA moves a fixed fraction of the way towards today's close:
+`EMA today = EMA yesterday + α × (close today − EMA yesterday)`, with α = 2 ÷ (n + 1).
+For the 5 EMA, α = 1/3, so it closes a third of the gap each day (fast, hugs the price). For the 200 EMA,
+α ≈ 1/100, so it closes 1 % of the gap (slow, a long‑term baseline). The very first value is a plain average
+of the first n closes (§4). Periods count candles: on the daily chart 5 ≈ a week, 13 ≈ 2½ weeks, 26 ≈ a
+month and a bit, 50 ≈ 2½ months, 100 ≈ 5 months, 200 ≈ 10 months.
+
+**How to read it — the four things Fortuna looks at:**
+
+| What | Reads as | Example (Nifty, 9 Oct 2026) |
+|---|---|---|
+| **Close vs an EMA** | above = buyers in control on that horizon; below = sellers | close 22,520 below the 13/26/50/100/200 EMAs, barely above the 5 |
+| **Short EMA vs longer EMA** | short above long = the recent trend is up; below = down | 5 < 13 < 26 < 50 < 100 < 200 |
+| **The stack / stage (−5 … +5)** | how many EMAs are lined up in order, starting from the fast end. +5 = every EMA in bullish order (strongest uptrend), −5 = every EMA in bearish order (strongest downtrend), ±1 = only the 5/13 pair agrees (earliest, weakest) (§6) | −5, STRONG DOWNTREND |
+| **Crosses** | the day one line moves to the other side of another. A cross is a *change*; how long it holds and by how much is what makes it believable (§7–8) | 9 Oct: close crossed above the 5 EMA by 0.08 points — tiny, candle not clear |
+
+Named crosses: **golden cross** = 50 EMA crosses above the 200 EMA (long‑term trend turning up); **death
+cross** = 50 crosses below 200 (Nifty: since 16 Mar 2026).
+
+**Good at:** showing the direction of the trend on each horizon at a glance, and when it changes.
+**Weak at:** it **lags** (it is built from past prices, so a cross comes after the turn) and it **whipsaws**
+in sideways markets — the close flips above/below the 5 EMA every few days (Nifty Sept–Oct 2026: crosses on
+18, 22, 23, 24 Sep, 6, 7, 9 Oct). That is why Fortuna shows days held, margin % and whole‑candle‑clear beside
+every cross, and why ADX (trend strength) and MACD (momentum) sit alongside it.
+
+**How it fits with the others:** EMA = *direction* on each horizon; MACD = *momentum* (speeding up or
+slowing down); ADX = *strength* (is there a trend at all). See `MACD.md` §0 and `ADX.md` §0.
 
 ---
 
@@ -321,7 +357,7 @@ All EMA files live in `backend/modules/Module_F_Tech_Indicators_Funnel/trend_ind
 | `conftest.py` | pytest hook: PASSED/FAILED per test + failure text + summary → `logs/ema_test_logs/test_ema.log` (overwritten each run; only this folder's tests) |
 
 `ema.py` functions are pure (no I/O, nothing instrument‑specific). Full chain on 6,657 bars ≈ 70 ms.
-Reader: `market_data/upstox/indicator_ohlcv_reader.py` (13 tests).
+Reader: `market_data/upstox/indicator_ohlcv_reader.py` (19 tests since MACD part 1; 13 at EMA time).
 
 **Run** (from `backend/`; output also written to `logs\ema_test_logs\` — `ema_check.log`, `ema_snapshot.log`,
 `test_ema.log`, overwritten each run, first line = the command):
@@ -391,3 +427,4 @@ Reader tests (`test_indicator_ohlcv_reader.py`, 19) are listed in `MACD.md` §14
 | 2026‑10‑11 | v2 — TradingView parity explained in detail (§3), snapshot and texts (§9), sample outputs (§10), files moved to `trend_indicators/ema/`, data fetch left to the refresh step. |
 | 2026‑10‑12 | v2.1 — §3.6 broker‑hosted TradingView charts (tv.dhan.co for Nifty, tv.upstox / pro.upstox for stocks); §11 multi‑timeframe EMA logged as an open item (reader now supports intraday). |
 | 2026‑10‑12 | v2.2 — file logging for the manual checks and tests: `ema` → `logs/ema_test_logs/ema_check.log`, `ema_snapshot` → `ema_snapshot.log`, pytest → `test_ema.log` (new `ema/conftest.py`); only the `__main__` blocks changed, EMA maths untouched; re‑run output identical. §13 testing and verification record (every unit test, how it was cross‑checked, known discrepancies). |
+| 2026‑10‑12 | v2.3 — §0 "What EMA is, how it works, how to read it" (plain English, strengths/weaknesses, how it fits with MACD/ADX); reader test count corrected (19). Commands, verification procedure and troubleshooting collected in `Fortuna-Indicators-Runbook.md`. |

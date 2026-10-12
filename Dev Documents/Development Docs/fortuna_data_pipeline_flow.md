@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑10‑12 (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -651,6 +651,18 @@ the wrong candle (MACD.md §3.5). 19 reader + 21 MACD tests pass on Windows; EMA
   value gap closed on re‑read (exact). Tests: 60 MACD (39 + 21) pass on Windows.
 - **Open:** event list flooded by momentum turns (split `--crosses` / `--turns` proposed); frontend.
 
+### 2.13 Indicator phase — ADX / DMI (2026‑10‑12)
+
+Full spec, parity proof, tests and known discrepancy: `Dev Documents\Development Docs\Fortuna Indicators\ADX.md`.
+- **What:** TradingView "DMI 14 14" — +DI, −DI, DX, ADX, ADXR (ADXR = ADX 13 candles back), Wilder's `ta.rma`.
+  Uses **high, low, close** from the same reader (all six timeframes).
+- **Facts on top:** strength band (convention <20/20–25/25–40/40–50/50+), ADX rising/falling + held, +DI vs −DI
+  side/held/since; events = DI cross (tagged with ADX + band) and ADX crossing 25; label e.g. STRONG TREND DOWN.
+- **Built:** `trend_indicators/adx/` — `adx.py`, `adx_snapshot.py`, `test_adx.py`, `test_adx_snapshot.py`,
+  `conftest.py`; logs → `logs/adx_test_logs/`. 61 tests pass on Windows.
+- **Verified:** daily 9 Oct exact to 4 decimals on all five lines; 7 cross dates on the chart. **Known:** 1h within
+  0.002–0.01 of tv.dhan (Upstox vs Dhan 1h feed, September; recorded, not hunted).
+
 ---
 
 ## 2A. News pipeline (BUILT — 2026‑09‑04)
@@ -973,13 +985,17 @@ be re‑fetched later).
 | `trend_indicators/macd/test_macd.py` | 39 unit tests (§2.12) |
 | `trend_indicators/macd/macd_snapshot.py` | `build_macd_snapshot()` — per‑timeframe package + texts + alerts + summary line, never raises (§2.12) |
 | `trend_indicators/macd/test_macd_snapshot.py` | 21 unit tests (§2.12) |
+| `trend_indicators/adx/adx.py` | `compute_adx()` (five DMI lines), `adx_states()`, `adx_label()`, `adx_all()`; manual check `--timeframe [all] --bars --dates --ohlc --state --crosses` (§2.13) |
+| `trend_indicators/adx/adx_snapshot.py` | `build_adx_snapshot()` — per‑timeframe package + texts + alerts + summary line, never raises (§2.13) |
+| `trend_indicators/adx/test_adx.py`, `test_adx_snapshot.py`, `conftest.py` | 43 + 18 unit tests; results → `logs/adx_test_logs/test_adx.log` (§2.13) |
 | `trend_indicators/macd/conftest.py` | pytest results → `logs/macd_test_logs/test_macd.log` (§2.12) |
 
-Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`.
+Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`.
 
 Logs (under `backend/logs/`, git‑ignored by `*.log`), overwritten each run, first line = the command:
 MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_all.log`, `macd_snapshot.log`, `test_macd.log`); EMA → `logs/ema_test_logs/`
-(`ema_check.log`, `ema_snapshot.log`, `test_ema.log`). The reader's own check still prints to screen only.
+(`ema_check.log`, `ema_snapshot.log`, `test_ema.log`); ADX → `logs/adx_test_logs/` (`adx_check_<timeframe>.log`,
+`adx_check_all.log`, `adx_snapshot.log`, `test_adx.log`). The reader's own check still prints to screen only.
 Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14).
 
 ### Supabase tables
@@ -1010,6 +1026,8 @@ Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` �
 ---
 
 ## 6. Run commands (quick reference)
+
+**Indicators:** the full manual — every flag, what it prints, logs, reference values, how to check against TradingView, troubleshooting — is `Fortuna Indicators\Fortuna-Indicators-Runbook.md`. The lines below are the short list.
 
 ```bash
 # OHLCV backfill
@@ -1042,6 +1060,11 @@ python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd [--
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd --timeframe all --state      # where we stand on all six
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot [--timeframes ...] [--directions above] [--json]
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd -v
+
+# ADX / DMI (§2.13) — read-only; output also written to logs/adx_test_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx [--timeframe 1d|1w|1mo|5m|15m|60m|all] [--bars N] [--dates ...] [--ohlc] [--state] [--crosses N]
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx_snapshot [--timeframes ...] [--directions above] [--json]
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx -v
 ```
 
 `--limit N` = verify on the first N (always do this before a full run).
