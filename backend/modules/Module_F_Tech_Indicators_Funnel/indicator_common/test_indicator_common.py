@@ -204,3 +204,14 @@ def test_units_price_signed():
     assert TX.units(5, "5m") == "5 candles"
     assert TX.price(22520.449) == "22,520.45" and TX.price(None) == "n/a"
     assert TX.signed(22.85) == "+22.85" and TX.signed(-0.08) == "-0.08"
+
+
+@pytest.mark.parametrize("tf, ts, expected", [
+    ("1mo", "2026-10-01", "Oct 2026"),
+    ("1w", "2026-10-05", "Week of Mon 5 Oct 2026"),
+    ("1d", "2026-10-09", "Fri 9 Oct 2026"),
+    ("5m", "2026-10-09 15:25", "Fri 9 Oct 2026 15:25"),
+    ("60m", "2026-10-09 09:15", "Fri 9 Oct 2026 09:15"),
+])
+def test_report_date_always_has_year(tf, ts, expected):
+    assert TX.report_date(pd.Timestamp(ts, tz="Asia/Kolkata"), tf) == expected

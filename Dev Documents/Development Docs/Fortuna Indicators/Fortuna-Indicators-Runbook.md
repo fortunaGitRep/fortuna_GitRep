@@ -4,21 +4,22 @@
 should be able to: run every indicator, read its output, find its log, check it against TradingView, spot
 the known differences, fix the common errors, and add the next indicator the same way. The **what and why**
 of each indicator lives in its spec (`EMA.md`, `MACD.md`, `ADX.md` — §0 of each is the plain‑English
-definition). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
+definition; `RSI.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 1.2 — 2026‑10‑12. Covers: indicator reader, EMA, MACD, ADX / DMI, shared helpers (`indicator_common/`)._
+_Version 1.3 — 2026‑10‑13. Covers: indicator reader, EMA, MACD, ADX / DMI, RSI, shared helpers (`indicator_common/`)._
 
 ---
 
 ## 1. The indicators in one table
 
-| Indicator | Answers | Timeframes | Spec | Code folder (under `backend/modules/Module_F_Tech_Indicators_Funnel/trend_indicators/`) |
+| Indicator | Answers | Timeframes | Spec | Code folder (under `backend/modules/Module_F_Tech_Indicators_Funnel/`) |
 |---|---|---|---|---|
-| **EMA** 5/13/26/50/100/200 | **Direction** on each horizon; stack stage −5…+5; crosses | 1D | `EMA.md` | `ema/` |
-| **MACD** 12/26/9 | **Momentum**: trend (MACD vs 0) + speeding up / slowing down (vs signal, histogram colour) | 1M 1W 1D 60m 15m 5m | `MACD.md` | `macd/` |
-| **ADX / DMI** 14 14 | **Strength**: is there a trend at all (ADX), who is in control (+DI vs −DI) | 1M 1W 1D 60m 15m 5m | `ADX.md` | `adx/` |
+| **EMA** 5/13/26/50/100/200 | **Direction** on each horizon; stack stage −5…+5; crosses | 1D | `EMA.md` | `trend_indicators/ema/` |
+| **MACD** 12/26/9 | **Momentum**: trend (MACD vs 0) + speeding up / slowing down (vs signal, histogram colour) | 1M 1W 1D 60m 15m 5m | `MACD.md` | `trend_indicators/macd/` |
+| **ADX / DMI** 14 14 | **Strength**: is there a trend at all (ADX), who is in control (+DI vs −DI) | 1M 1W 1D 60m 15m 5m | `ADX.md` | `trend_indicators/adx/` |
+| **RSI** 14 close | **Momentum level** 0–100 in seven zones (80 / 70 / 55 / 45 / 30 / 20), 45–55 = RSI S&R zone; every zone change and 50 cross | 1M 1W 1D 60m 15m 5m | `RSI.md` | `oscillators/rsi/` |
 
-Read them together: EMA = direction, MACD = momentum, ADX = strength. All three are pure calculations on
+Read them together: EMA = direction, MACD = momentum, ADX = strength, RSI = momentum level. All are pure calculations on
 stored candles: **they never fetch data and never write anything except their own log files.**
 
 **Shared helpers** live in `backend/modules/Module_F_Tech_Indicators_Funnel/indicator_common/`, beside
@@ -59,7 +60,8 @@ Moved there 2026‑10‑12 unchanged; `ema.py`, `macd.py`, `macd_snapshot.py`, `
    from `backend/`. **Any command + `--help`** prints its flags, e.g.
    `python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx --help`.
 5. **Shortcut prefix.** Every indicator command starts with the same long path. In this doc
-   `…trend_indicators` means `modules.Module_F_Tech_Indicators_Funnel.trend_indicators` — type it in full.
+   `…trend_indicators` means `modules.Module_F_Tech_Indicators_Funnel.trend_indicators` and `…oscillators`
+   means `modules.Module_F_Tech_Indicators_Funnel.oscillators` — type them in full.
 
 ---
 
@@ -71,14 +73,16 @@ Moved there 2026‑10‑12 unchanged; `ema.py`, `macd.py`, `macd_snapshot.py`, `
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx_snapshot
+python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.rsi.rsi_snapshot
 # 3. read the logs (same text as the screen)
 #    backend\logs\ema_test_logs\ema_snapshot.log
 #    backend\logs\macd_test_logs\macd_snapshot.log
 #    backend\logs\adx_test_logs\adx_snapshot.log
+#    backend\logs\rsi_test_logs\rsi_snapshot.log
 ```
 Each snapshot prints a header ("as of" which candle), the TradingView numbers, a label, any event on the
 latest candle (alerts), recent/bigger‑picture lines and — for MACD/ADX — one summary line across all six
-timeframes. How to read each line: `EMA.md` §9, `MACD.md` §9, `ADX.md` §6.
+timeframes. How to read each line: `EMA.md` §9, `MACD.md` §9, `ADX.md` §6, `RSI.md` §6.
 
 ---
 
@@ -162,7 +166,24 @@ ADXR**; `--state` adds band, ADX slope and how long, who is in control and since
 crosses (each tagged with the ADX at the cross and its band) and ADX crossing 25. Logs in
 `logs\adx_test_logs\`: `adx_check_<timeframe>.log`, `adx_check_all.log`, `adx_snapshot.log`.
 
-### 4.5 Unit tests (no R2 needed, safe any time)
+### 4.5 RSI (six timeframes)
+
+```
+python -m …oscillators.rsi.rsi [--key KEY] [--timeframe 1d|1w|1mo|60m|15m|5m|all] [--domain DOMAIN]
+                               [--bars N] [--dates D ...] [--ohlc] [--state | --crosses N]
+python -m …oscillators.rsi.rsi_snapshot [--key KEY] [--name NAME] [--timeframes TF ...] [--json]
+```
+| Command / flag | Prints | Log (`logs\rsi_test_logs\`) |
+|---|---|---|
+| `rsi` / `--bars N` / `--dates …` | close, RSI (the TradingView value), RSI MA (hidden Smoothed MA, for checking only) | `rsi_check_<tf>.log` |
+| `--state` | zone label, zone held / since, side of 50, rising / falling, last zone change, last 50 crosses (`--timeframe all` adds a summary table) | `rsi_check_<tf>_state.log` |
+| `--crosses N` | latest N zone changes (Ash's wording, e.g. `RSI 33.66 STRONG BEAR (20–30) rising up into BEARISH (30–45)`) and 50 crosses | `rsi_check_<tf>_crosses.log` |
+| `rsi_snapshot` | report‑dated texts + alerts for all six timeframes + summary line | `rsi_snapshot.log` |
+
+`--state` and `--crosses` are one at a time. No directions option: both directions always, index and stocks.
+Same `--dates` rules as MACD (weekly = Monday, monthly = the 1st, intraday = every candle of the date).
+
+### 4.6 Unit tests (no R2 needed, safe any time)
 
 ```
 python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py -v        # 19 tests (screen only)
@@ -170,16 +191,17 @@ python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema -v
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd -v     # 66 → logs\macd_test_logs\test_macd.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx -v      # 61 → logs\adx_test_logs\test_adx.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators -v          # all three; each log still gets only its own tests
-python -m pytest modules/Module_F_Tech_Indicators_Funnel/indicator_common -v          # 52 → logs\indicator_common_test_logs\test_indicator_common.log
-python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 242 (63 + 66 + 61 + 52)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/indicator_common -v          # 57 → logs\indicator_common_test_logs\test_indicator_common.log
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/rsi -v           # 86 → logs\rsi_test_logs\test_rsi.log
+python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 333 (63 + 66 + 61 + 57 + 86)
 ```
 **Expected: every test PASSED, last line `summary: N passed`, `exit status: 0`.** Run the tests after any
-code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9;
+code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9, `RSI.md` §9;
 `indicator_common`: 33 checks that each old name is the shared object (nothing can drift) + hand‑worked EMA / RMA,
-a plain‑loop RMA reference, the cross rule, runs, timeframe map, text formatting.
+a plain‑loop RMA reference, the cross rule, runs, timeframe map, text formatting, `report_date`.
 
 **After touching anything in `indicator_common/`:** run the full test command above **and** the §6.1 health
-check (`ema`, `macd`, `adx --dates 2026-10-09`) — every indicator depends on it.
+check (`ema`, `macd`, `adx`, `rsi --dates 2026-10-09`) — every indicator depends on it.
 
 ---
 
@@ -207,7 +229,8 @@ Use this whenever code changes, a new instrument is added, or a number looks wro
 
 1. **Open the reference chart:** tv.dhan.co for Nifty (tv.upstox / pro.upstox for stocks). Add the indicator
    with the exact settings: EMA lengths 5/13/26/50/100/200 · MACD 12 26 close 9 EMA/EMA · DMI 14 14 (the DMI
-   shows five lines: +DI, −DI, DX, ADX, ADXR).
+   shows five lines: +DI, −DI, DX, ADX, ADXR) · RSI 14 close, Smoothing Line SMA 14 (turn the Smoothed MA on
+   in Style only when checking `RSI MA`; legend `RSI 14 SMA 14  <RSI>  <MA>`).
 2. **Load plenty of history first** — zoom out / scroll back a few years, then return. TradingView calculates
    only over the history it has loaded; with a short history long EMAs and smoothed lines are slightly off
    (`EMA.md` §3.5). If a number is off by a little, re‑read the same candle after loading more history.
@@ -216,7 +239,8 @@ Use this whenever code changes, a new instrument is added, or a number looks wro
 4. **Run Fortuna for the same candle**, with `--ohlc` for intraday:
    `macd --timeframe 60m --dates 2026-10-09 --ohlc`. **First compare O/H/L/C** with the chart's — if they
    differ you are on a different candle.
-5. **Compare the values in the legend** with Fortuna's (2 decimals; ADX shows 4).
+5. **Compare the values in the legend** with Fortuna's (2 decimals; ADX shows 4). For an RSI zone change, hover
+   the candle **and the one before** (the change needs the previous candle on the other side of the boundary).
 6. **Labels on weekly candles:** Fortuna/Upstox name a week by its **Monday**; TradingView by the week's **first
    trading day** (week of 14 Sep 2026 = "Tue 15 Sep" on the chart because Monday was a holiday). Same candle.
 
@@ -233,10 +257,15 @@ Use this whenever code changes, a new instrument is added, or a number looks wro
 | MACD 15m 9 Oct 15:15 | −0.08 / 35.25 / 35.33 |
 | MACD 5m 9 Oct 15:25 | −5.88 / 5.94 / 11.82 |
 | ADX 1D 9 Oct 2026 (+DI / −DI / DX / ADX / ADXR) | 9.9922 / 38.3904 / 58.6951 / 43.8447 / 37.4798 |
+| RSI 1D 9 Oct 2026 (RSI / MA) | 36.50 / 31.48 — BEARISH (30–45) |
+| RSI 1M Sep 2026 · 1W week of 28 Sep 2026 | 44.82 / 56.29 · 31.06 / 46.27 |
+| RSI 60m · 15m 9 Oct 15:15 · 5m 9 Oct 15:15 | 51.18 / 41.86 · 56.85 / 62.14 · 50.83 / 57.99 |
 
 These never change for completed candles (unless history is re‑fetched), so they are the fastest health
-check after any change: run `ema --dates 2026-10-09`, `macd --dates 2026-10-09`, `adx --dates 2026-10-09`.
-More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §10.1–10.2.
+check after any change: run `ema --dates 2026-10-09`, `macd --dates 2026-10-09`, `adx --dates 2026-10-09`,
+`rsi --dates 2026-10-09`. Refreshing data adds newer candles but does not change these (an indicator on a candle
+uses only that candle and earlier ones); after a refresh re‑run them once to confirm.
+More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §10.1–10.2, `RSI.md` §3.2 / §10.2.
 
 ### 6.2 Known differences — these are NOT Fortuna errors
 
@@ -247,6 +276,7 @@ More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §
 | tv.dhan vs tv.upstox differ slightly on long EMAs | each broker loads different history and its own feed | expected; use tv.dhan for Nifty |
 | Nifty volume: Dhan shows it, Upstox stored data has 0 | Upstox sends no index volume | volume not used for indices |
 | ADX 1h off by 0.002–0.01 vs tv.dhan | small Sept 2026 1h feed difference Upstox vs Dhan, fading out | recorded, not hunted (`ADX.md` §10.3) |
+| RSI MA 60m 0.01 off (41.86 vs 41.85), RSI exact | rounding at the 2nd decimal | recorded; MA is hidden (`RSI.md` §10.3) |
 | Old (2020) EMA 100/200 a few paise off | old‑data differences that vanish by 2022 | none |
 
 ---
@@ -281,7 +311,7 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | R2 / config error on the first line | `.env` missing or wrong | check `backend\.env` |
 | `getaddrinfo failed` during refresh | Supabase free tier paused | restore the project in the Supabase dashboard, rerun |
 | "as of" date is older than expected | refresh not run, or run before 4 pm | §2 step 3 |
-| Label `n/a (not enough history)` | fewer candles than the indicator needs (EMA 200 → 200; MACD signal → 34; ADX → 28, ADXR → 41) | normal for new listings |
+| Label `n/a (not enough history)` | fewer candles than the indicator needs (EMA 200 → 200; MACD signal → 34; ADX → 28, ADXR → 41; RSI → 15, RSI MA → 28) | normal for new listings |
 | A test FAILED | code changed something | open the test log; the failure text says which value differed |
 | Numbers differ from the chart | almost always §6.2 | follow §6 steps 2–4 before suspecting code |
 
@@ -294,6 +324,7 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | `ema_test_logs\` | `ema_check.log` (any `ema` run) · `ema_snapshot.log` · `test_ema.log` |
 | `macd_test_logs\` | `macd_check_<tf>.log` (bars/dates) · `macd_check_<tf>_<state/crosses/turns/events>.log` · `macd_snapshot.log` · `test_macd.log` (`<tf>` = 1d/1w/1mo/60m/15m/5m/all) |
 | `adx_test_logs\` | `adx_check_<1d/1w/1mo/60m/15m/5m/all>.log` · `adx_snapshot.log` · `test_adx.log` |
+| `rsi_test_logs\` | `rsi_check_<tf>.log` · `rsi_check_<tf>_<state/crosses>.log` · `rsi_snapshot.log` · `test_rsi.log` |
 | `indicator_common_test_logs\` | `test_indicator_common.log` |
 
 All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in `backend\logs\` directly.
@@ -333,7 +364,7 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 
 | Need | Doc |
 |---|---|
-| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`) |
+| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`) |
 | Exact formulas, labels, texts, thresholds | the spec |
 | How parity was proven, every mismatch explained | spec §3.5 / §10 / §13–14 |
 | Reader rules (bad prices, after‑close bars, special sessions) | `MACD.md` §2, `fortuna_data_pipeline_flow.md` §2.12 |
@@ -343,6 +374,9 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 ---
 
 ## 12. Change log
+- **v1.3 — 2026‑10‑13.** RSI (`oscillators/rsi/`): §1 table, §2 prefix `…oscillators`, §3 daily routine, new §4.5
+  RSI commands (tests now §4.6: RSI 86, indicator_common 57, total 333), §6 RSI settings + zone‑change hover rule,
+  §6.1 RSI reference values + refresh note, §6.2 RSI MA rounding, §8 RSI history, §9 RSI logs.
 - **v1.2 — 2026‑10‑12.** Shared helpers `indicator_common/` (§1 table, §4.5 tests 52 / total 242 and "after touching
   indicator_common" rule, §9 log folder, §10 steps 3 and 5: `oscillators/` folder, import only from
   `indicator_common`).

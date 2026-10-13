@@ -9,6 +9,9 @@ every indicator snapshot.
   iso(x, tf)          ISO date (1d/1w/1mo) or ISO datetime (intraday); blank -> None
   when(x, tf, year)   '9 Oct', '9 Oct 15:15', 'week of 5 Oct', 'Oct 2026'
                       (the year is added when it differs from `year`)
+  report_date(x, tf)  full report-style date, always with the year (added 2026-10-13):
+                      'Oct 2026' (1mo), 'Week of Mon 5 Oct 2026' (1w),
+                      'Fri 9 Oct 2026' (1d), 'Fri 9 Oct 2026 15:25' (intraday)
   units(n, tf)        '1 day', '3 weeks', '5 candles'
   price(x)            '22,520.45' or 'n/a'
   signed(x)           '+22.85' / '-0.08' or 'n/a'
@@ -65,6 +68,22 @@ def when(x: Any, tf: str, ref_year: int) -> str:
         return f"{ts:%b %Y}"
     if tf == "1w":
         return f"week of {day}"
+    if is_intraday(tf):
+        return f"{day} {ts:%H:%M}"
+    return day
+
+
+def report_date(x: Any, tf: str) -> str:
+    """Report-style date of a candle, always with the year (Ash, 2026-10-13):
+    'Oct 2026' (1mo), 'Week of Mon 5 Oct 2026' (1w), 'Fri 9 Oct 2026' (1d),
+    'Fri 9 Oct 2026 15:25' (5m / 15m / 60m). Weekly candles are named by their
+    Monday (Upstox); TradingView names them by the week's first trading day."""
+    ts = pd.Timestamp(x)
+    day = f"{ts:%a} {ts.day} {ts:%b %Y}"
+    if tf == "1mo":
+        return f"{ts:%b %Y}"
+    if tf == "1w":
+        return f"Week of {day}"
     if is_intraday(tf):
         return f"{day} {ts:%H:%M}"
     return day
