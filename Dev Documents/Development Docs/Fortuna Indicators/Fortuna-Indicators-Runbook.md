@@ -4,9 +4,9 @@
 should be able to: run every indicator, read its output, find its log, check it against TradingView, spot
 the known differences, fix the common errors, and add the next indicator the same way. The **what and why**
 of each indicator lives in its spec (`EMA.md`, `MACD.md`, `ADX.md` — §0 of each is the plain‑English
-definition; `RSI.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
+definition; `RSI.md` and `STOCH_RSI.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 1.3 — 2026‑10‑13. Covers: indicator reader, EMA, MACD, ADX / DMI, RSI, shared helpers (`indicator_common/`)._
+_Version 1.4 — 2026‑10‑13. Covers: indicator reader, EMA, MACD, ADX / DMI, RSI, Stochastic RSI, shared helpers (`indicator_common/`)._
 
 ---
 
@@ -18,13 +18,16 @@ _Version 1.3 — 2026‑10‑13. Covers: indicator reader, EMA, MACD, ADX / DMI,
 | **MACD** 12/26/9 | **Momentum**: trend (MACD vs 0) + speeding up / slowing down (vs signal, histogram colour) | 1M 1W 1D 60m 15m 5m | `MACD.md` | `trend_indicators/macd/` |
 | **ADX / DMI** 14 14 | **Strength**: is there a trend at all (ADX), who is in control (+DI vs −DI) | 1M 1W 1D 60m 15m 5m | `ADX.md` | `trend_indicators/adx/` |
 | **RSI** 14 close | **Momentum level** 0–100 in seven zones (80 / 70 / 55 / 45 / 30 / 20), 45–55 = RSI S&R zone; every zone change and 50 cross | 1M 1W 1D 60m 15m 5m | `RSI.md` | `oscillators/rsi/` |
+| **Stochastic RSI** 14 14 3 3 close | **Where RSI sits in its 14‑candle range**: %K / %D 0–100, zones OVERBOUGHT ≥80 / MIDDLE / OVERSOLD <20 on %K; every zone change and %K/%D cross (equal lines = no cross) | 1M 1W 1D 60m 15m 5m | `STOCH_RSI.md` | `oscillators/stoch_rsi/` |
 
-Read them together: EMA = direction, MACD = momentum, ADX = strength, RSI = momentum level. All are pure calculations on
+Read them together: EMA = direction, MACD = momentum, ADX = strength, RSI = momentum level, Stochastic RSI = where RSI
+sits in its recent range (the fastest). All are pure calculations on
 stored candles: **they never fetch data and never write anything except their own log files.**
 
 **Shared helpers** live in `backend/modules/Module_F_Tech_Indicators_Funnel/indicator_common/`, beside
-`trend_indicators/` (and the coming `oscillators/`). Every indicator uses them; no indicator imports from another
-indicator's folder:
+`trend_indicators/` and `oscillators/`. Every indicator uses them; no indicator imports from another indicator's
+folder — the one exception by design: Stochastic RSI imports `compute_rsi` from `oscillators/rsi/rsi.py`, because it
+is built on RSI (reuse, not a copy):
 
 | File | Holds |
 |---|---|
@@ -74,15 +77,17 @@ python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema_snaps
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.rsi.rsi_snapshot
+python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.stoch_rsi.stoch_rsi_snapshot
 # 3. read the logs (same text as the screen)
 #    backend\logs\ema_test_logs\ema_snapshot.log
 #    backend\logs\macd_test_logs\macd_snapshot.log
 #    backend\logs\adx_test_logs\adx_snapshot.log
 #    backend\logs\rsi_test_logs\rsi_snapshot.log
+#    backend\logs\stoch_rsi_test_logs\stoch_rsi_snapshot.log
 ```
 Each snapshot prints a header ("as of" which candle), the TradingView numbers, a label, any event on the
 latest candle (alerts), recent/bigger‑picture lines and — for MACD/ADX — one summary line across all six
-timeframes. How to read each line: `EMA.md` §9, `MACD.md` §9, `ADX.md` §6, `RSI.md` §6.
+timeframes. How to read each line: `EMA.md` §9, `MACD.md` §9, `ADX.md` §6, `RSI.md` §6, `STOCH_RSI.md` §6.
 
 ---
 
@@ -183,7 +188,26 @@ python -m …oscillators.rsi.rsi_snapshot [--key KEY] [--name NAME] [--timeframe
 `--state` and `--crosses` are one at a time. No directions option: both directions always, index and stocks.
 Same `--dates` rules as MACD (weekly = Monday, monthly = the 1st, intraday = every candle of the date).
 
-### 4.6 Unit tests (no R2 needed, safe any time)
+### 4.6 Stochastic RSI (six timeframes)
+
+```
+python -m …oscillators.stoch_rsi.stoch_rsi [--key KEY] [--timeframe 1d|1w|1mo|60m|15m|5m|all] [--domain DOMAIN]
+                                           [--bars N] [--dates D ...] [--ohlc] [--state | --crosses N | --flat | --crosscheck]
+python -m …oscillators.stoch_rsi.stoch_rsi_snapshot [--key KEY] [--name NAME] [--timeframes TF ...] [--json]
+```
+| Command / flag | Prints | Log (`logs\stoch_rsi_test_logs\`) |
+|---|---|---|
+| `stoch_rsi` / `--bars N` / `--dates …` | close, %K, %D (the TradingView values), RSI (the RSI it is built on, = the RSI panel), raw (unsmoothed, checks only) | `stoch_rsi_check_<tf>.log` |
+| `--state` | zone of %K, zone held / since, %K vs %D held / since, %K rising / falling, pinned at 100 / 0, last zone change, last %K/%D crosses (`--timeframe all` adds a summary table) | `stoch_rsi_check_<tf>_state.log` |
+| `--crosses N` | latest N zone changes (`%K 83.12 MIDDLE (20–80) rising into OVERBOUGHT (>80)`) and %K/%D crosses (`%K crossed below %D in OVERBOUGHT (%K 91.20, %D 93.05)`) | `stoch_rsi_check_<tf>_crosses.log` |
+| `--flat` | count of flat / near‑flat 14‑candle RSI windows (Nifty: none on any timeframe) | `stoch_rsi_check_<tf>_flat.log` |
+| `--crosscheck` | %K/%D crosses with TradingView's raw rule vs Fortuna's "equal = no cross" (`STOCH_RSI.md` §5) | `stoch_rsi_check_<tf>_crosscheck.log` |
+| `stoch_rsi_snapshot` | report‑dated texts + alerts for all six timeframes + summary line | `stoch_rsi_snapshot.log` |
+
+Modes are one at a time. No directions option: both directions always, index and stocks. Same `--dates` rules as
+MACD. Values print with 2 decimals; TradingView's `-0.00` shows as `0.00`.
+
+### 4.7 Unit tests (no R2 needed, safe any time)
 
 ```
 python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py -v        # 19 tests (screen only)
@@ -193,15 +217,18 @@ python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx -v
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators -v          # all three; each log still gets only its own tests
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/indicator_common -v          # 57 → logs\indicator_common_test_logs\test_indicator_common.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/rsi -v           # 86 → logs\rsi_test_logs\test_rsi.log
-python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 333 (63 + 66 + 61 + 57 + 86)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/stoch_rsi -v     # 97 → logs\stoch_rsi_test_logs\test_stoch_rsi.log
+python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 430 (63 + 66 + 61 + 57 + 86 + 97)
 ```
 **Expected: every test PASSED, last line `summary: N passed`, `exit status: 0`.** Run the tests after any
-code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9, `RSI.md` §9;
+code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9, `RSI.md` §9,
+`STOCH_RSI.md` §9;
 `indicator_common`: 33 checks that each old name is the shared object (nothing can drift) + hand‑worked EMA / RMA,
 a plain‑loop RMA reference, the cross rule, runs, timeframe map, text formatting, `report_date`.
 
 **After touching anything in `indicator_common/`:** run the full test command above **and** the §6.1 health
-check (`ema`, `macd`, `adx`, `rsi --dates 2026-10-09`) — every indicator depends on it.
+check (`ema`, `macd`, `adx`, `rsi`, `stoch_rsi --dates 2026-10-09`) — every indicator depends on it. After touching
+`oscillators/rsi/rsi.py`, also run the Stoch RSI tests and check (it is built on `compute_rsi`).
 
 ---
 
@@ -230,7 +257,8 @@ Use this whenever code changes, a new instrument is added, or a number looks wro
 1. **Open the reference chart:** tv.dhan.co for Nifty (tv.upstox / pro.upstox for stocks). Add the indicator
    with the exact settings: EMA lengths 5/13/26/50/100/200 · MACD 12 26 close 9 EMA/EMA · DMI 14 14 (the DMI
    shows five lines: +DI, −DI, DX, ADX, ADXR) · RSI 14 close, Smoothing Line SMA 14 (turn the Smoothed MA on
-   in Style only when checking `RSI MA`; legend `RSI 14 SMA 14  <RSI>  <MA>`).
+   in Style only when checking `RSI MA`; legend `RSI 14 SMA 14  <RSI>  <MA>`) · Stoch RSI 14 14 3 3 close (legend
+   `Stoch RSI 14 14 3 3  <%K>  <%D>`; %K pink, %D black, bands 80 / 20).
 2. **Load plenty of history first** — zoom out / scroll back a few years, then return. TradingView calculates
    only over the history it has loaded; with a short history long EMAs and smoothed lines are slightly off
    (`EMA.md` §3.5). If a number is off by a little, re‑read the same candle after loading more history.
@@ -260,12 +288,16 @@ Use this whenever code changes, a new instrument is added, or a number looks wro
 | RSI 1D 9 Oct 2026 (RSI / MA) | 36.50 / 31.48 — BEARISH (30–45) |
 | RSI 1M Sep 2026 · 1W week of 28 Sep 2026 | 44.82 / 56.29 · 31.06 / 46.27 |
 | RSI 60m · 15m 9 Oct 15:15 · 5m 9 Oct 15:15 | 51.18 / 41.86 · 56.85 / 62.14 · 50.83 / 57.99 |
+| Stoch RSI 1D 9 Oct 2026 (%K / %D) | 56.04 / 56.31 — MIDDLE (20–80) |
+| Stoch RSI 1M Sep 2026 · 1W week of 28 Sep 2026 | 27.49 / 32.15 · 0.00 / 4.59 (TradingView shows −0.00) |
+| Stoch RSI 60m · 15m 9 Oct 15:15 · 5m 9 Oct 15:15 | 96.77 / 97.82 · 48.09 / 76.46 · 0.00 / 4.57 |
 
 These never change for completed candles (unless history is re‑fetched), so they are the fastest health
 check after any change: run `ema --dates 2026-10-09`, `macd --dates 2026-10-09`, `adx --dates 2026-10-09`,
-`rsi --dates 2026-10-09`. Refreshing data adds newer candles but does not change these (an indicator on a candle
+`rsi --dates 2026-10-09`, `stoch_rsi --dates 2026-10-09`. Refreshing data adds newer candles but does not change these (an indicator on a candle
 uses only that candle and earlier ones); after a refresh re‑run them once to confirm.
-More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §10.1–10.2, `RSI.md` §3.2 / §10.2.
+More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §10.1–10.2, `RSI.md` §3.2 / §10.2,
+`STOCH_RSI.md` §3.3.
 
 ### 6.2 Known differences — these are NOT Fortuna errors
 
@@ -277,6 +309,8 @@ More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §
 | Nifty volume: Dhan shows it, Upstox stored data has 0 | Upstox sends no index volume | volume not used for indices |
 | ADX 1h off by 0.002–0.01 vs tv.dhan | small Sept 2026 1h feed difference Upstox vs Dhan, fading out | recorded, not hunted (`ADX.md` §10.3) |
 | RSI MA 60m 0.01 off (41.86 vs 41.85), RSI exact | rounding at the 2nd decimal | recorded; MA is hidden (`RSI.md` §10.3) |
+| Stoch RSI: TradingView shows −0.00, Fortuna 0.00 | float leftover in TradingView's average | same value (`STOCH_RSI.md` §3.5) |
+| Stoch RSI %K/%D cross one candle later than TradingView's maths, where both lines read the same (e.g. 100.00 / 100.00) | Fortuna: equal lines = no cross, cross on the candle they separate (Ash) | by design (`STOCH_RSI.md` §5) |
 | Old (2020) EMA 100/200 a few paise off | old‑data differences that vanish by 2022 | none |
 
 ---
@@ -311,7 +345,7 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | R2 / config error on the first line | `.env` missing or wrong | check `backend\.env` |
 | `getaddrinfo failed` during refresh | Supabase free tier paused | restore the project in the Supabase dashboard, rerun |
 | "as of" date is older than expected | refresh not run, or run before 4 pm | §2 step 3 |
-| Label `n/a (not enough history)` | fewer candles than the indicator needs (EMA 200 → 200; MACD signal → 34; ADX → 28, ADXR → 41; RSI → 15, RSI MA → 28) | normal for new listings |
+| Label `n/a (not enough history)` | fewer candles than the indicator needs (EMA 200 → 200; MACD signal → 34; ADX → 28, ADXR → 41; RSI → 15, RSI MA → 28; Stoch RSI %K → 30, %D → 32) | normal for new listings |
 | A test FAILED | code changed something | open the test log; the failure text says which value differed |
 | Numbers differ from the chart | almost always §6.2 | follow §6 steps 2–4 before suspecting code |
 
@@ -325,6 +359,7 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | `macd_test_logs\` | `macd_check_<tf>.log` (bars/dates) · `macd_check_<tf>_<state/crosses/turns/events>.log` · `macd_snapshot.log` · `test_macd.log` (`<tf>` = 1d/1w/1mo/60m/15m/5m/all) |
 | `adx_test_logs\` | `adx_check_<1d/1w/1mo/60m/15m/5m/all>.log` · `adx_snapshot.log` · `test_adx.log` |
 | `rsi_test_logs\` | `rsi_check_<tf>.log` · `rsi_check_<tf>_<state/crosses>.log` · `rsi_snapshot.log` · `test_rsi.log` |
+| `stoch_rsi_test_logs\` | `stoch_rsi_check_<tf>.log` · `stoch_rsi_check_<tf>_<state/crosses/flat/crosscheck>.log` · `stoch_rsi_snapshot.log` · `test_stoch_rsi.log` |
 | `indicator_common_test_logs\` | `test_indicator_common.log` |
 
 All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in `backend\logs\` directly.
@@ -338,7 +373,8 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 2. **Spec doc** `<NAME>.md` here, same layout: §0 plain English, scope, input, TradingView parity (formula in
    Pine terms), bands/labels, states/events, texts, code map, open items, tests, verification record, change log.
 3. **Folder** `trend_indicators/<name>/` or `oscillators/<name>/` (RSI, Stochastic RSI and later CCI, Williams %R
-   go in `oscillators/`) with `__init__.py`, `<name>.py`,
+   go in `oscillators/`; an indicator built on another, like Stochastic RSI on RSI, imports that one's compute
+   function) with `__init__.py`, `<name>.py`,
    `<name>_snapshot.py`, `test_<name>.py`, `test_<name>_snapshot.py`, `conftest.py`.
 4. **`<name>.py`:** pure functions (no I/O) — `compute_<name>(df)` returns a copy with new columns and raises
    `ValueError` on bad input; states/labels as separate functions; a `__main__` manual check with the standard
@@ -364,7 +400,7 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 
 | Need | Doc |
 |---|---|
-| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`) |
+| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`) |
 | Exact formulas, labels, texts, thresholds | the spec |
 | How parity was proven, every mismatch explained | spec §3.5 / §10 / §13–14 |
 | Reader rules (bad prices, after‑close bars, special sessions) | `MACD.md` §2, `fortuna_data_pipeline_flow.md` §2.12 |
@@ -374,6 +410,9 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 ---
 
 ## 12. Change log
+- **v1.4 — 2026‑10‑13.** Stochastic RSI (`oscillators/stoch_rsi/`): §1 table + reuse note, §3 daily routine, new §4.6
+  commands (`--state`, `--crosses`, `--flat`, `--crosscheck`, snapshot; tests now §4.7: Stoch RSI 97, total 430), §6
+  settings and reference values, §6.2 −0.00 and equal‑lines rule, §8 history needed, §9 logs, §10 step 3, §11.
 - **v1.3 — 2026‑10‑13.** RSI (`oscillators/rsi/`): §1 table, §2 prefix `…oscillators`, §3 daily routine, new §4.5
   RSI commands (tests now §4.6: RSI 86, indicator_common 57, total 333), §6 RSI settings + zone‑change hover rule,
   §6.1 RSI reference values + refresh note, §6.2 RSI MA rounding, §8 RSI history, §9 RSI logs.
