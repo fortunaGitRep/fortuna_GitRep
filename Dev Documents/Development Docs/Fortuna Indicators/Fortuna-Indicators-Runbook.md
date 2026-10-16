@@ -4,9 +4,9 @@
 should be able to: run every indicator, read its output, find its log, check it against TradingView, spot
 the known differences, fix the common errors, and add the next indicator the same way. The **what and why**
 of each indicator lives in its spec (`EMA.md`, `MACD.md`, `ADX.md` — §0 of each is the plain‑English
-definition; `RSI.md` and `STOCH_RSI.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
+definition; `RSI.md`, `STOCH_RSI.md` and `MARKET_STRUCTURE.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 1.4 — 2026‑10‑13. Covers: indicator reader, EMA, MACD, ADX / DMI, RSI, Stochastic RSI, shared helpers (`indicator_common/`)._
+_Version 1.5 — 2026‑10‑16. Covers: indicator reader, EMA, MACD, ADX / DMI, RSI, Stochastic RSI, market structure (`price_action/`), shared helpers (`indicator_common/`)._
 
 ---
 
@@ -19,9 +19,10 @@ _Version 1.4 — 2026‑10‑13. Covers: indicator reader, EMA, MACD, ADX / DMI,
 | **ADX / DMI** 14 14 | **Strength**: is there a trend at all (ADX), who is in control (+DI vs −DI) | 1M 1W 1D 60m 15m 5m | `ADX.md` | `trend_indicators/adx/` |
 | **RSI** 14 close | **Momentum level** 0–100 in seven zones (80 / 70 / 55 / 45 / 30 / 20), 45–55 = RSI S&R zone; every zone change and 50 cross | 1M 1W 1D 60m 15m 5m | `RSI.md` | `oscillators/rsi/` |
 | **Stochastic RSI** 14 14 3 3 close | **Where RSI sits in its 14‑candle range**: %K / %D 0–100, zones OVERBOUGHT ≥80 / MIDDLE / OVERSOLD <20 on %K; every zone change and %K/%D cross (equal lines = no cross) | 1M 1W 1D 60m 15m 5m | `STOCH_RSI.md` | `oscillators/stoch_rsi/` |
+| **Market structure** (Zig Zag 5% / 0.2%, depth 10) | **Trend from price alone**: swings, level breaks (attempt / break / gap / cleared / retest / held / failed / re‑break), BOS (trend continuation) and CHoCH (potential reversal), uptrend / downtrend / neutral and the prices that change it | 1M 1W 1D 60m 15m 5m + provisional 60m (from 5m) and 1D (from 60m) | `MARKET_STRUCTURE.md` | `price_action/swing_points/`, `price_action/market_structure/` |
 
 Read them together: EMA = direction, MACD = momentum, ADX = strength, RSI = momentum level, Stochastic RSI = where RSI
-sits in its recent range (the fastest). All are pure calculations on
+sits in its recent range (the fastest), market structure = trend from swings and breaks. All are pure calculations on
 stored candles: **they never fetch data and never write anything except their own log files.**
 
 **Shared helpers** live in `backend/modules/Module_F_Tech_Indicators_Funnel/indicator_common/`, beside
@@ -34,7 +35,7 @@ is built on RSI (reuse, not a copy):
 | `smoothing.py` | `ema_tradingview` (Pine `ta.ema`), `rma_tradingview` (Pine `ta.rma`, Wilder) |
 | `crosses.py` | `cross_above`, `cross_below` (Pine `ta.crossover` / `ta.crossunder`), `runs` (held / since / from start), `bar_labels` |
 | `timeframes.py` | `TIMEFRAMES`, `TF_NAME`, `DEFAULT_DOMAIN` (timeframe → R2 domain), `UNIT` / `NOW` / `PREV` words, `is_intraday` |
-| `text_format.py` | `num`, `to_int`, `iso`, `when`, `units`, `price`, `signed` — JSON‑safe numbers and dates for snapshot texts |
+| `text_format.py` | `num`, `to_int`, `iso`, `when`, `report_date`, `units`, `price`, `signed` — JSON‑safe numbers and dates for snapshot texts |
 
 Moved there 2026‑10‑12 unchanged; `ema.py`, `macd.py`, `macd_snapshot.py`, `adx.py` still export the old names
 (`ema_tradingview`, `_runs`, `_DEFAULT_DOMAIN`, `_num` …), so older imports keep working. New code imports from
@@ -63,8 +64,9 @@ Moved there 2026‑10‑12 unchanged; `ema.py`, `macd.py`, `macd_snapshot.py`, `
    from `backend/`. **Any command + `--help`** prints its flags, e.g.
    `python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx --help`.
 5. **Shortcut prefix.** Every indicator command starts with the same long path. In this doc
-   `…trend_indicators` means `modules.Module_F_Tech_Indicators_Funnel.trend_indicators` and `…oscillators`
-   means `modules.Module_F_Tech_Indicators_Funnel.oscillators` — type them in full.
+   `…trend_indicators` means `modules.Module_F_Tech_Indicators_Funnel.trend_indicators`, `…oscillators`
+   means `modules.Module_F_Tech_Indicators_Funnel.oscillators` and `…price_action` means
+   `modules.Module_F_Tech_Indicators_Funnel.price_action` — type them in full.
 
 ---
 
@@ -72,22 +74,25 @@ Moved there 2026‑10‑12 unchanged; `ema.py`, `macd.py`, `macd_snapshot.py`, `
 
 ```
 # 1. refresh data (§2 step 3)
-# 2. where do we stand — all three indicators, all timeframes
+# 2. where do we stand — every indicator, all timeframes
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema.ema_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.macd.macd_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.rsi.rsi_snapshot
 python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.stoch_rsi.stoch_rsi_snapshot
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.market_structure.market_structure_snapshot
 # 3. read the logs (same text as the screen)
 #    backend\logs\ema_test_logs\ema_snapshot.log
 #    backend\logs\macd_test_logs\macd_snapshot.log
 #    backend\logs\adx_test_logs\adx_snapshot.log
 #    backend\logs\rsi_test_logs\rsi_snapshot.log
 #    backend\logs\stoch_rsi_test_logs\stoch_rsi_snapshot.log
+#    backend\logs\market_structure_test_logs\market_structure_snapshot.log
 ```
 Each snapshot prints a header ("as of" which candle), the TradingView numbers, a label, any event on the
 latest candle (alerts), recent/bigger‑picture lines and — for MACD/ADX — one summary line across all six
-timeframes. How to read each line: `EMA.md` §9, `MACD.md` §9, `ADX.md` §6, `RSI.md` §6, `STOCH_RSI.md` §6.
+timeframes. How to read each line: `EMA.md` §9, `MACD.md` §9, `ADX.md` §6, `RSI.md` §6, `STOCH_RSI.md` §6,
+`MARKET_STRUCTURE.md` §6 (market structure also prints the BOS / CHoCH meaning once at the top).
 
 ---
 
@@ -207,7 +212,28 @@ python -m …oscillators.stoch_rsi.stoch_rsi_snapshot [--key KEY] [--name NAME] 
 Modes are one at a time. No directions option: both directions always, index and stocks. Same `--dates` rules as
 MACD. Values print with 2 decimals; TradingView's `-0.00` shows as `0.00`.
 
-### 4.7 Unit tests (no R2 needed, safe any time)
+### 4.7 Market structure (six timeframes + two provisional views)
+
+```
+python -m …price_action.market_structure.market_structure_snapshot [--key KEY] [--name NAME] [--timeframes TF ...]
+                                                                   [--directions both|above] [--no-provisional] [--json]
+python -m …price_action.swing_points.zigzag_check [--timeframe 1mo|1w|1d|60m|15m|5m] [--show N] [--events N]
+```
+| Command / flag | Prints | Log |
+|---|---|---|
+| `market_structure_snapshot` | BOS / CHoCH meaning, then per view: header, trend + since + how long, the two prices that change it (distance in pts / %), events and labels on the latest candle, last break status, alerts; summary line | `logs\market_structure_test_logs\market_structure_snapshot.log` |
+| `--timeframes 1d 5m` | only those timeframes (provisional views still built unless `--no-provisional`) | |
+| `--directions above` | stocks mode: only up events as texts / alerts | |
+| `--json` | also the full package | |
+| `zigzag_check` (no flags) | the detailed check: 1D and 5m swings with labels / legs / zones, temporary‑lock view, LEVEL BREAKS (1D, 5m, provisional 60m, provisional 1D), STRUCTURE (all six TFs + both provisional views) | `logs\zigzag_test_logs\zigzag_check.log` |
+| `--timeframe 5m` | swings of one timeframe only (no breaks / structure sections) | same |
+| `--show N` | how many latest swings to list | |
+| `--events N` | BOS / CHoCH events printed per timeframe (default 10, `0` = full history; 5m ≈ 2,500 events) | |
+
+Alerts: every BOS and CHoCH on the latest candle; failed / retested / held / re‑broken are text lines only.
+The 5m view takes about 20 seconds (labels for every event in history).
+
+### 4.8 Unit tests (no R2 needed, safe any time)
 
 ```
 python -m pytest modules/market_data/upstox/test_indicator_ohlcv_reader.py -v        # 19 tests (screen only)
@@ -218,11 +244,19 @@ python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators -v    
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/indicator_common -v          # 57 → logs\indicator_common_test_logs\test_indicator_common.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/rsi -v           # 86 → logs\rsi_test_logs\test_rsi.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/stoch_rsi -v     # 97 → logs\stoch_rsi_test_logs\test_stoch_rsi.log
-python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 430 (63 + 66 + 61 + 57 + 86 + 97)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/price_action -v              # 78 (screen only; each file below writes its own log)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 508 (63 + 66 + 61 + 57 + 86 + 97 + 78)
 ```
+Market structure test files also run one at a time and write their own log, e.g.
+`python -m modules.Module_F_Tech_Indicators_Funnel.price_action.market_structure.test_structure_events`:
+`swing_points/` → `logs\zigzag_test_logs\` (`unit_tests.log` 18, `provisional_unit_tests.log` 6,
+`swing_legs_unit_tests.log` 4); `market_structure/` → `logs\market_structure_test_logs\`
+(`swing_labels_unit_tests.log` 9, `level_breaks_unit_tests.log` 17, `structure_events_unit_tests.log` 12,
+`market_structure_snapshot_unit_tests.log` 12).
+
 **Expected: every test PASSED, last line `summary: N passed`, `exit status: 0`.** Run the tests after any
 code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9, `RSI.md` §9,
-`STOCH_RSI.md` §9;
+`STOCH_RSI.md` §9, `MARKET_STRUCTURE.md` §8;
 `indicator_common`: 33 checks that each old name is the shared object (nothing can drift) + hand‑worked EMA / RMA,
 a plain‑loop RMA reference, the cross rule, runs, timeframe map, text formatting, `report_date`.
 
@@ -258,7 +292,8 @@ Use this whenever code changes, a new instrument is added, or a number looks wro
    with the exact settings: EMA lengths 5/13/26/50/100/200 · MACD 12 26 close 9 EMA/EMA · DMI 14 14 (the DMI
    shows five lines: +DI, −DI, DX, ADX, ADXR) · RSI 14 close, Smoothing Line SMA 14 (turn the Smoothed MA on
    in Style only when checking `RSI MA`; legend `RSI 14 SMA 14  <RSI>  <MA>`) · Stoch RSI 14 14 3 3 close (legend
-   `Stoch RSI 14 14 3 3  <%K>  <%D>`; %K pink, %D black, bands 80 / 20).
+   `Stoch RSI 14 14 3 3  <%K>  <%D>`; %K pink, %D black, bands 80 / 20) · Zig Zag deviation 5 / depth 10 on
+   1D / 1W / 1M, 0.2 / 10 on 5m (60m 1.25, 15m 0.5 are Fortuna's derived values — set them by hand to compare).
 2. **Load plenty of history first** — zoom out / scroll back a few years, then return. TradingView calculates
    only over the history it has loaded; with a short history long EMAs and smoothed lines are slightly off
    (`EMA.md` §3.5). If a number is off by a little, re‑read the same candle after loading more history.
@@ -291,13 +326,17 @@ Use this whenever code changes, a new instrument is added, or a number looks wro
 | Stoch RSI 1D 9 Oct 2026 (%K / %D) | 56.04 / 56.31 — MIDDLE (20–80) |
 | Stoch RSI 1M Sep 2026 · 1W week of 28 Sep 2026 | 27.49 / 32.15 · 0.00 / 4.59 (TradingView shows −0.00) |
 | Stoch RSI 60m · 15m 9 Oct 15:15 · 5m 9 Oct 15:15 | 96.77 / 97.82 · 48.09 / 76.46 · 0.00 / 4.57 |
+| Market structure 1D (data to 13 Oct 2026) | BOS Thu 23 May 2024 on 22,794.70 · CHoCH down Wed 4 Mar 2026 on 24,571.75 · CHoCH up Mon 3 Aug 2026 on 24,601.70 · CHoCH down Thu 24 Sep 2026 on 23,116.10 → DOWNTREND, CHoCH up above 24,774.30 |
+| Market structure 5m (data to 13 Oct 2026) | CHoCH up Fri 9 Oct 2026 09:15 on 22,256.00 (gap) · BOS 13:55 on 22,534.40 · CHoCH down Mon 12 Oct 10:50 on 22,446.10 · CHoCH up Tue 13 Oct 09:15 on 22,411.30 → UPTREND, CHoCH down below 22,480.80 |
+| Market structure summary (13 Oct 2026) | 1M up · 1W down · 1D down · 60m up · 15m up · 5m up · prov. 60m up · prov. 1D down |
 
 These never change for completed candles (unless history is re‑fetched), so they are the fastest health
 check after any change: run `ema --dates 2026-10-09`, `macd --dates 2026-10-09`, `adx --dates 2026-10-09`,
-`rsi --dates 2026-10-09`, `stoch_rsi --dates 2026-10-09`. Refreshing data adds newer candles but does not change these (an indicator on a candle
+`rsi --dates 2026-10-09`, `stoch_rsi --dates 2026-10-09` (market structure: the STRUCTURE section of `zigzag_check --events 0`
+must still list the events above). Refreshing data adds newer candles but does not change these (an indicator on a candle
 uses only that candle and earlier ones); after a refresh re‑run them once to confirm.
 More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §10.1–10.2, `RSI.md` §3.2 / §10.2,
-`STOCH_RSI.md` §3.3.
+`STOCH_RSI.md` §3.3, `MARKET_STRUCTURE.md` §9.
 
 ### 6.2 Known differences — these are NOT Fortuna errors
 
@@ -312,6 +351,9 @@ More values and cross dates: `EMA.md` §10, `MACD.md` §10.3–10.4, `ADX.md` §
 | Stoch RSI: TradingView shows −0.00, Fortuna 0.00 | float leftover in TradingView's average | same value (`STOCH_RSI.md` §3.5) |
 | Stoch RSI %K/%D cross one candle later than TradingView's maths, where both lines read the same (e.g. 100.00 / 100.00) | Fortuna: equal lines = no cross, cross on the candle they separate (Ash) | by design (`STOCH_RSI.md` §5) |
 | Old (2020) EMA 100/200 a few paise off | old‑data differences that vanish by 2022 | none |
+| The last Zig Zag swing moves | the last leg is not locked until the opposite swing is drawn (days on 1D) | normal; read the provisional view for an early turn (`MARKET_STRUCTURE.md` §3) |
+| Rebuilt BOS / CHoCH history has fewer events than the live alerts did | a break of the last (unlocked) swing is an event that day; if Zig Zag later moves that swing, a rebuild no longer sees it | the stored daily snapshots are the live record (open item) |
+| Fortuna's 60m / 15m swings differ from the chart's default Zig Zag | 60m 1.25% and 15m 0.5% are Fortuna's derived settings | set the chart to the same deviation |
 
 ---
 
@@ -360,6 +402,8 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | `adx_test_logs\` | `adx_check_<1d/1w/1mo/60m/15m/5m/all>.log` · `adx_snapshot.log` · `test_adx.log` |
 | `rsi_test_logs\` | `rsi_check_<tf>.log` · `rsi_check_<tf>_<state/crosses>.log` · `rsi_snapshot.log` · `test_rsi.log` |
 | `stoch_rsi_test_logs\` | `stoch_rsi_check_<tf>.log` · `stoch_rsi_check_<tf>_<state/crosses/flat/crosscheck>.log` · `stoch_rsi_snapshot.log` · `test_stoch_rsi.log` |
+| `zigzag_test_logs\` | `zigzag_check.log` · `unit_tests.log` · `provisional_unit_tests.log` · `swing_legs_unit_tests.log` |
+| `market_structure_test_logs\` | `market_structure_snapshot.log` · `swing_labels_unit_tests.log` · `level_breaks_unit_tests.log` · `structure_events_unit_tests.log` · `market_structure_snapshot_unit_tests.log` |
 | `indicator_common_test_logs\` | `test_indicator_common.log` |
 
 All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in `backend\logs\` directly.
@@ -373,8 +417,9 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 2. **Spec doc** `<NAME>.md` here, same layout: §0 plain English, scope, input, TradingView parity (formula in
    Pine terms), bands/labels, states/events, texts, code map, open items, tests, verification record, change log.
 3. **Folder** `trend_indicators/<name>/` or `oscillators/<name>/` (RSI, Stochastic RSI and later CCI, Williams %R
-   go in `oscillators/`; an indicator built on another, like Stochastic RSI on RSI, imports that one's compute
-   function) with `__init__.py`, `<name>.py`,
+   go in `oscillators/`; price‑action modules (market structure, later S&R levels and trendlines) go in
+   `price_action/` and reuse `price_action/swing_points/`; an indicator built on another, like Stochastic RSI on
+   RSI, imports that one's compute function) with `__init__.py`, `<name>.py`,
    `<name>_snapshot.py`, `test_<name>.py`, `test_<name>_snapshot.py`, `conftest.py`.
 4. **`<name>.py`:** pure functions (no I/O) — `compute_<name>(df)` returns a copy with new columns and raises
    `ValueError` on bad input; states/labels as separate functions; a `__main__` manual check with the standard
@@ -400,7 +445,8 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 
 | Need | Doc |
 |---|---|
-| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`) |
+| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md`) |
+| Every market‑structure decision, in the order it was made | "Fortuna — Market Structure Build Plan" (exported next to the specs) |
 | Exact formulas, labels, texts, thresholds | the spec |
 | How parity was proven, every mismatch explained | spec §3.5 / §10 / §13–14 |
 | Reader rules (bad prices, after‑close bars, special sessions) | `MACD.md` §2, `fortuna_data_pipeline_flow.md` §2.12 |
@@ -410,6 +456,10 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) are in
 ---
 
 ## 12. Change log
+- **v1.5 — 2026‑10‑16.** Market structure (`price_action/`): §1 table, §2 prefix `…price_action`, §3 daily routine, new
+  §4.7 commands (`market_structure_snapshot`, `zigzag_check --timeframe --show --events`; tests now §4.8: market
+  structure 78, total 508, per‑file test logs), §6 Zig Zag settings and reference events, §6.2 last swing moves /
+  rebuilt history / derived 60m–15m settings, §9 two log folders, §10 step 3 `price_action/`, §11.
 - **v1.4 — 2026‑10‑13.** Stochastic RSI (`oscillators/stoch_rsi/`): §1 table + reuse note, §3 daily routine, new §4.6
   commands (`--state`, `--crosses`, `--flat`, `--crosscheck`, snapshot; tests now §4.7: Stoch RSI 97, total 430), §6
   settings and reference values, §6.2 −0.00 and equal‑lines rule, §8 history needed, §9 logs, §10 step 3, §11.

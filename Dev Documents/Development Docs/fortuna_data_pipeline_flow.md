@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑16 (indicator sections brought up to date: shared helpers `indicator_common/` §2.14, RSI §2.15, Stochastic RSI §2.16, market structure `price_action/` §2.17; §5 code map and §6 commands; specs in Fortuna Indicators/). Earlier: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -559,6 +559,9 @@ Outputs: `logs/data_audit.log`, `logs/data_audit_summary.txt` (both overwritten 
   on Nifty now and on watchlist / options stocks later for best‑to‑least ranking.
 - **Folders:** `backend/modules/Module_F_Tech_Indicators_Funnel/` → `price_action`, `trend_indicators`,
   `momentum_oscillators`, `volume_moneyflow`, `volatility_indicators`, `support_resistance_levels`.
+  **As built (2026‑10‑16):** `trend_indicators/` (EMA, MACD, ADX), `oscillators/` (RSI, Stochastic RSI — this
+  name replaced the planned `momentum_oscillators` on 2026‑10‑13), `price_action/` (market structure) and the
+  shared `indicator_common/`; the other folders come with their indicators.
 - **Undocumented files are left untouched:** the old `read_ohlcv.py` is not in this doc or the build log,
   so it stays as is; the indicator reader is a new file.
 
@@ -662,6 +665,61 @@ Full spec, parity proof, tests and known discrepancy: `Dev Documents\Development
   `conftest.py`; logs → `logs/adx_test_logs/`. 61 tests pass on Windows.
 - **Verified:** daily 9 Oct exact to 4 decimals on all five lines; 7 cross dates on the chart. **Known:** 1h within
   0.002–0.01 of tv.dhan (Upstox vs Dhan 1h feed, September; recorded, not hunted).
+
+### 2.14 Shared indicator helpers — `indicator_common/` (2026‑10‑12)
+
+- **Why:** RSI needed Wilder's average from `adx.py`, and ADX already borrowed helpers from MACD. One shared
+  folder, a peer of `trend_indicators/` and `oscillators/`, so no indicator imports another indicator's folder
+  (one exception by design: Stochastic RSI imports `compute_rsi`, because it is built on RSI).
+- **Files:** `smoothing.py` (`ema_tradingview`, `rma_tradingview`), `crosses.py` (`cross_above`, `cross_below`,
+  `runs`, `bar_labels`), `timeframes.py` (`TIMEFRAMES`, `TF_NAME`, `DEFAULT_DOMAIN`, `UNIT` / `NOW` / `PREV`,
+  `is_intraday`), `text_format.py` (`num`, `to_int`, `iso`, `when`, `report_date` (2026‑10‑13), `units`,
+  `price`, `signed`), `test_indicator_common.py` (57 tests), `conftest.py` → `logs/indicator_common_test_logs/`.
+- **Move, don't copy:** bodies moved unchanged; the old files import them back under their old names, so every
+  existing import keeps working. Before / after on the same data: 29 of 29 outputs identical.
+
+### 2.15 Indicator phase — RSI (2026‑10‑13)
+
+Full spec: `Dev Documents\Development Docs\Fortuna Indicators\RSI.md`.
+- **What:** TradingView RSI 14 on close (Wilder's `ta.rma`); Smoothing Line SMA 14 calculated but hidden.
+- **Zones:** OVERBOUGHT ≥80 · STRONG BULL 70–80 · BULLISH 55–70 · RSI S&R ZONE 45–55 · BEARISH 30–45 ·
+  STRONG BEAR 20–30 · OVERSOLD <20. Alerts on every zone change and every 50 cross, all six timeframes, both
+  directions, index and stocks alike.
+- **Built:** `oscillators/rsi/` — `rsi.py`, `rsi_snapshot.py`, `test_rsi.py` (63), `test_rsi_snapshot.py` (23),
+  `conftest.py` → `logs/rsi_test_logs/`. Same reader, all six timeframes.
+- **Verified:** values exact on all six timeframes vs tv.dhan (13 Oct); zone‑change dates on the chart.
+
+### 2.16 Indicator phase — Stochastic RSI (2026‑10‑13)
+
+Full spec: `Dev Documents\Development Docs\Fortuna Indicators\STOCH_RSI.md`.
+- **What:** TradingView Stoch RSI 14 / 14 / 3 / 3 on close: `k = sma(stoch(rsi), 3)`, `d = sma(k, 3)`; reuses
+  `compute_rsi` from `oscillators/rsi/rsi.py`. Flat RSI window → blank (Pine `na`).
+- **Zones on %K:** OVERBOUGHT ≥80 · MIDDLE · OVERSOLD <20. Alerts on every zone change and every %K/%D cross
+  (equal lines = no cross), all six timeframes, both directions.
+- **Built:** `oscillators/stoch_rsi/` — `stoch_rsi.py`, `stoch_rsi_snapshot.py`, `test_stoch_rsi.py` (73),
+  `test_stoch_rsi_snapshot.py` (24), `conftest.py` → `logs/stoch_rsi_test_logs/`.
+- **Verified:** 22 values exact on all six timeframes vs tv.dhan.
+
+### 2.17 Indicator phase — market structure, `price_action/` (2026‑10‑14 → 16)
+
+Full spec: `Dev Documents\Development Docs\Fortuna Indicators\MARKET_STRUCTURE.md`; build plan exported beside it.
+- **What:** trend from price alone. Swings = port of TradingView Zig Zag v9 (deviation 1M/1W/1D 5%, 60m 1.25%,
+  15m 0.5%, 5m 0.2%; depth 10), plus a provisional 60m (5m swings) and provisional 1D (60m swings). Level breaks
+  (attempt / confirmed / gap / cleared / retest / held / failed / re‑break). BOS / CHoCH = first close beyond the
+  latest swing known that day; trend uptrend / downtrend / neutral and the two prices that would change it.
+- **Reads:** high, low, open, close from the same reader, all six timeframes; nothing stored.
+- **Built:** `price_action/swing_points/` (`zigzag_swings.py`, `zigzag_settings.py`, `provisional_swings.py`,
+  `swing_legs.py`, `zigzag_check.py`, tests 18 + 6 + 4) and `price_action/market_structure/`
+  (`swing_labels.py`, `level_breaks.py`, `structure_events.py`, `market_structure_snapshot.py`, tests
+  9 + 17 + 12 + 12). Imports only `indicator_common`. Logs → `logs/zigzag_test_logs/`,
+  `logs/market_structure_test_logs/`.
+- **Verified:** swings, breaks and BOS / CHoCH on named 1D and 5m candles vs tv.dhan; snapshot trends match the
+  check log. 78 tests; whole indicator suite 508.
+- **Known:** history rebuilt from the finished Zig Zag misses breaks of a last swing that Zig Zag later moved
+  (lookahead test: 10 of 50 cut dates). Today's report is always right; the stored daily snapshots will be the
+  live record (open item).
+- **Swing points are shared:** price S&R levels (`support_resistance_levels/`) will import
+  `price_action/swing_points/`, never copy it.
 
 ---
 
@@ -989,14 +1047,32 @@ be re‑fetched later).
 | `trend_indicators/adx/adx_snapshot.py` | `build_adx_snapshot()` — per‑timeframe package + texts + alerts + summary line, never raises (§2.13) |
 | `trend_indicators/adx/test_adx.py`, `test_adx_snapshot.py`, `conftest.py` | 43 + 18 unit tests; results → `logs/adx_test_logs/test_adx.log` (§2.13) |
 | `trend_indicators/macd/conftest.py` | pytest results → `logs/macd_test_logs/test_macd.log` (§2.12) |
+| `indicator_common/smoothing.py`, `crosses.py`, `timeframes.py`, `text_format.py` | shared helpers used by every indicator (§2.14) |
+| `indicator_common/test_indicator_common.py`, `conftest.py` | 57 unit tests → `logs/indicator_common_test_logs/` (§2.14) |
+| `oscillators/rsi/rsi.py` | `compute_rsi()`, `rsi_zone()`, `rsi_states()`, `rsi_label()`, `rsi_all()`, `zone_change_text()`; manual check `--timeframe [all] --bars --dates --ohlc --state --crosses` (§2.15) |
+| `oscillators/rsi/rsi_snapshot.py` | `build_rsi_snapshot()` — per‑timeframe package + texts + alerts + summary line, never raises (§2.15) |
+| `oscillators/rsi/test_rsi.py`, `test_rsi_snapshot.py`, `conftest.py` | 63 + 23 unit tests → `logs/rsi_test_logs/` (§2.15) |
+| `oscillators/stoch_rsi/stoch_rsi.py` | `compute_stoch_rsi()`, `stoch_from_rsi()`, `srsi_zone()`, `srsi_states()`, `srsi_label()`, `srsi_all()`, `kd_crosses()`; manual check adds `--flat`, `--crosscheck` (§2.16) |
+| `oscillators/stoch_rsi/stoch_rsi_snapshot.py` | `build_stoch_rsi_snapshot()` — per‑timeframe package + texts + alerts + summary line, never raises (§2.16) |
+| `oscillators/stoch_rsi/test_stoch_rsi.py`, `test_stoch_rsi_snapshot.py`, `conftest.py` | 73 + 24 unit tests → `logs/stoch_rsi_test_logs/` (§2.16) |
+| `price_action/swing_points/zigzag_swings.py` | `find_zigzag_swings()` — TradingView Zig Zag v9 port; pivot / detected / locked time per swing (§2.17) |
+| `price_action/swing_points/zigzag_settings.py` | deviation + equal tolerance per timeframe, depth 10 (§2.17) |
+| `price_action/swing_points/provisional_swings.py`, `swing_legs.py` | provisional 60m / 1D view; leg points, %, bars, retracement (§2.17) |
+| `price_action/swing_points/zigzag_check.py` | manual check: swings, temporary‑lock view, LEVEL BREAKS, STRUCTURE; `--timeframe --show --events` (§2.17) |
+| `price_action/market_structure/swing_labels.py`, `level_breaks.py`, `structure_events.py` | HH/HL/LH/LL/EQH/EQL; break / retest / held / failed cycles; BOS / CHoCH + trend (§2.17) |
+| `price_action/market_structure/market_structure_snapshot.py` | `build_market_structure_snapshot()` — per‑view package + texts + alerts + summary line, never raises (§2.17) |
+| `price_action/…/test_*.py` | 18 + 6 + 4 (swing_points) + 9 + 17 + 12 + 12 (market_structure) = 78 unit tests (§2.17) |
 
-Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`.
+Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md` (+ the market structure build plan); hands‑on manual `Fortuna-Indicators-Runbook.md`.
 
 Logs (under `backend/logs/`, git‑ignored by `*.log`), overwritten each run, first line = the command:
 MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_<timeframe>_<state|crosses|turns|events>.log`, `macd_snapshot.log`, `test_macd.log`); EMA → `logs/ema_test_logs/`
 (`ema_check.log`, `ema_snapshot.log`, `test_ema.log`); ADX → `logs/adx_test_logs/` (`adx_check_<timeframe>.log`,
-`adx_check_all.log`, `adx_snapshot.log`, `test_adx.log`). The reader's own check still prints to screen only.
-Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14).
+`adx_check_all.log`, `adx_snapshot.log`, `test_adx.log`); RSI → `logs/rsi_test_logs/`; Stochastic RSI →
+`logs/stoch_rsi_test_logs/`; shared helpers → `logs/indicator_common_test_logs/`; market structure →
+`logs/zigzag_test_logs/` (`zigzag_check.log`, swing test logs) and `logs/market_structure_test_logs/`
+(`market_structure_snapshot.log`, one log per test file). Full list: runbook §9. The reader's own check still prints to screen only.
+Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14, `ADX.md` §9, `RSI.md` §9, `STOCH_RSI.md` §9, `MARKET_STRUCTURE.md` §8–9).
 
 ### Supabase tables
 | Table | Contents |
@@ -1065,6 +1141,21 @@ python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/macd -
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx [--timeframe 1d|1w|1mo|5m|15m|60m|all] [--bars N] [--dates ...] [--ohlc] [--state] [--crosses N]
 python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.adx.adx_snapshot [--timeframes ...] [--directions above] [--json]
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx -v
+
+# RSI (§2.15) — read-only; output also written to logs/rsi_test_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.rsi.rsi [--timeframe 1d|1w|1mo|5m|15m|60m|all] [--bars N] [--dates ...] [--ohlc] [--state | --crosses N]
+python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.rsi.rsi_snapshot [--timeframes ...] [--json]
+
+# Stochastic RSI (§2.16) — read-only; output also written to logs/stoch_rsi_test_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.stoch_rsi.stoch_rsi [--timeframe ...|all] [--bars N] [--dates ...] [--ohlc] [--state | --crosses N | --flat | --crosscheck]
+python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.stoch_rsi.stoch_rsi_snapshot [--timeframes ...] [--json]
+
+# Market structure (§2.17) — read-only; logs/zigzag_test_logs/ and logs/market_structure_test_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.swing_points.zigzag_check [--timeframe ...] [--show N] [--events N]
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.market_structure.market_structure_snapshot [--timeframes ...] [--directions both|above] [--no-provisional] [--json]
+
+# All indicator tests (expect 508 passed)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel -v
 ```
 
 `--limit N` = verify on the first N (always do this before a full run).
