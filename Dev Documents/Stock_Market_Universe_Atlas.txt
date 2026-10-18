@@ -1,0 +1,588 @@
+================================================================================
+  STOCK MARKET UNIVERSE ATLAS (2026+)
+  A plain-text map of every stock-market domain, its tools, and WHY each exists.
+  Lens: India-first (NSE/BSE/SEBI), with the global picture where it matters.
+  Legend:  "— note" = what it's best for / why you'd pick it over alternatives.
+================================================================================
+
+
+STOCK MARKET UNIVERSE
+│
+├── 01 MARKET FOUNDATIONS  (the concepts everything else sits on)
+│   ├── What a market is
+│   │   ├── Stock market            — place where ownership of companies is traded
+│   │   ├── Primary market          — company sells NEW shares to raise money (IPO)
+│   │   ├── Secondary market        — investors trade EXISTING shares with each other
+│   │   └── Price discovery         — buyers vs sellers continuously set the price
+│   ├── Core terms
+│   │   ├── Share / equity          — a slice of ownership in a company
+│   │   ├── Market capitalisation   — price × total shares = company's market value
+│   │   ├── Liquidity               — how easily you can buy/sell without moving price
+│   │   ├── Bid / Ask / Spread      — best buy price, best sell price, gap between them
+│   │   ├── Volume                  — how many shares changed hands
+│   │   └── Volatility              — how much and how fast price swings
+│   ├── Market cap buckets (SEBI definition)
+│   │   ├── Large cap               — top 100 companies by market cap (stable)
+│   │   ├── Mid cap                 — ranks 101–250 (growth + moderate risk)
+│   │   └── Small cap               — rank 251 onwards (high growth, high risk)
+│   ├── Market phases
+│   │   ├── Bull market             — sustained rise, optimism
+│   │   ├── Bear market             — sustained fall (~20%+), pessimism
+│   │   ├── Correction              — 10–20% pullback inside a trend
+│   │   └── Sideways / range        — no clear direction, chops between levels
+│   └── Learning resources
+│       ├── Zerodha Varsity          — best free India-specific market course
+│       ├── NSE Academy / NISM       — exchange- and regulator-backed learning
+│       └── Investopedia             — fastest lookup for any market term
+│
+├── 02 MARKET PARTICIPANTS  (who is on the other side of your trade)
+│   ├── Retail
+│   │   ├── Retail investors         — individuals, long-term, small ticket size
+│   │   └── Retail traders           — individuals, short-term, often in F&O
+│   ├── Institutions
+│   │   ├── FIIs / FPIs              — foreign money; big driver of Indian index moves
+│   │   ├── DIIs                     — domestic MFs, insurers, pension funds (SIP flows)
+│   │   ├── Mutual funds (AMCs)      — pool retail money into managed portfolios
+│   │   └── Insurance / EPFO / NPS   — very long-horizon, steady buyers
+│   ├── Professional / speculative
+│   │   ├── Proprietary traders      — trade the firm's own capital
+│   │   ├── HFT / market makers      — provide liquidity, earn the spread
+│   │   ├── Hedge funds / AIFs       — complex strategies, accredited investors
+│   │   └── PMS                      — managed portfolio for HNIs (₹50L minimum)
+│   ├── Insiders
+│   │   ├── Promoters                — founders/controlling group; holding % is a signal
+│   │   └── Insiders / KMPs          — management; trades are disclosed and restricted
+│   └── Data to track them
+│       ├── FII/DII daily flow data  — NSE publishes cash-market buy/sell daily
+│       ├── Shareholding pattern     — quarterly promoter/FII/DII/retail split
+│       └── Bulk / block deals       — large single trades, disclosed same day
+│
+├── 03 REGULATORS & MARKET INFRASTRUCTURE  (the plumbing nobody sees)
+│   ├── Regulators
+│   │   ├── SEBI                     — India's securities market regulator
+│   │   ├── RBI                      — rates, currency, banks (moves markets indirectly)
+│   │   ├── SEC (US)                 — US securities regulator
+│   │   └── IFSCA                    — regulator for GIFT City international markets
+│   ├── Exchanges (India)
+│   │   ├── NSE                      — dominant in equity cash + almost all F&O volume
+│   │   ├── BSE                      — oldest in Asia; SENSEX; growing F&O share
+│   │   ├── MCX                      — commodity derivatives (gold, crude, metals)
+│   │   └── NSE IX (GIFT City)       — GIFT Nifty, trades nearly 24 hours in USD
+│   ├── Clearing corporations
+│   │   ├── NSE Clearing (NCL)       — guarantees settlement of NSE trades
+│   │   └── ICCL                     — clearing for BSE
+│   ├── Depositories
+│   │   ├── NSDL                     — holds shares electronically (demat)
+│   │   └── CDSL                     — the other depository; most discount brokers use it
+│   └── Market-wide safety systems
+│       ├── Circuit breakers         — index-wide halt at 10/15/20% moves
+│       ├── Price bands              — per-stock daily up/down limits
+│       └── Settlement guarantee fund — protects against a broker defaulting
+│
+├── 04 EQUITY INSTRUMENTS  (what you can actually own)
+│   ├── Shares
+│   │   ├── Equity shares            — ordinary ownership + voting rights
+│   │   ├── Preference shares        — fixed dividend priority, usually no vote
+│   │   └── DVRs                     — differential voting rights shares
+│   ├── Corporate actions
+│   │   ├── Dividend                 — cash paid out of profits
+│   │   ├── Bonus issue              — free shares; price adjusts, value unchanged
+│   │   ├── Stock split              — more shares at lower price, value unchanged
+│   │   ├── Rights issue             — existing holders offered new shares at a discount
+│   │   ├── Buyback                  — company buys back its own shares
+│   │   ├── Merger / demerger        — companies combine or split off a business
+│   │   └── Delisting                — stock removed from the exchange
+│   ├── Key dates
+│   │   ├── Record date              — who's on the books gets the benefit
+│   │   └── Ex-date                  — buy on/after this and you DON'T get it
+│   └── Other listed equity-like
+│       ├── REITs                    — own rent-earning real estate, pay out income
+│       ├── InvITs                   — own infra assets (roads, power lines)
+│       └── SME platform stocks      — small companies (NSE Emerge / BSE SME), thin liquidity
+│
+├── 05 DERIVATIVES  (contracts whose value comes from something else)
+│   ├── Core types
+│   │   ├── Futures                  — obligation to buy/sell at a fixed price on expiry
+│   │   ├── Options                  — right (not obligation) to buy/sell
+│   │   │   ├── Call (CE)            — profits when price goes UP
+│   │   │   └── Put (PE)             — profits when price goes DOWN
+│   │   └── Forwards / Swaps         — OTC, mostly institutional
+│   ├── Underlyings in India
+│   │   ├── Index F&O                — Nifty, Bank Nifty, Fin Nifty, Sensex, etc.
+│   │   ├── Stock F&O                — ~200 eligible stocks, monthly expiry
+│   │   ├── Commodity F&O            — on MCX
+│   │   └── Currency F&O             — USD/INR and other pairs
+│   ├── Key terms
+│   │   ├── Lot size                 — minimum contract quantity
+│   │   ├── Expiry                   — date the contract ends (weekly/monthly)
+│   │   ├── Strike price             — the price the option is written at
+│   │   ├── Premium                  — price paid for an option
+│   │   ├── ITM / ATM / OTM          — in / at / out of the money
+│   │   ├── Open interest (OI)       — number of outstanding contracts (positioning)
+│   │   └── Rollover                 — move a position to the next expiry
+│   ├── Margin
+│   │   ├── SPAN + Exposure          — exchange-set margin to hold a position
+│   │   └── Peak margin rules        — full margin must be collected upfront
+│   └── Reality check
+│       └── SEBI studies: ~9 in 10 individual F&O traders lose money — learn before trading
+│
+├── 06 FIXED INCOME & DEBT  (lend money, earn interest)
+│   ├── Government
+│   │   ├── G-Secs                   — central government bonds (safest)
+│   │   ├── T-Bills                  — short-term government debt (< 1 year)
+│   │   ├── SDLs                     — state government bonds
+│   │   └── RBI Retail Direct        — buy G-Secs directly as an individual
+│   ├── Corporate
+│   │   ├── Corporate bonds / NCDs   — higher yield, credit risk
+│   │   └── Commercial paper         — short-term corporate borrowing
+│   ├── Key concepts
+│   │   ├── Yield                    — effective return you earn
+│   │   ├── Duration                 — how sensitive price is to rate changes
+│   │   ├── Credit rating            — CRISIL / ICRA / CARE grade of default risk
+│   │   └── Yield curve              — short vs long rates; inversion = recession warning
+│   └── Retail platforms
+│       ├── Bond platforms (OBPPs)   — SEBI-registered online bond marketplaces
+│       └── Debt mutual funds         — bonds via a fund, easiest route
+│
+├── 07 MUTUAL FUNDS, ETFs & INDICES  (buy the market, not single stocks)
+│   ├── Indices (India)
+│   │   ├── Nifty 50                 — top 50 NSE companies, the benchmark
+│   │   ├── Sensex                   — top 30 BSE companies
+│   │   ├── Bank Nifty               — banking sector, most-traded options index
+│   │   ├── Nifty Next 50 / Midcap / Smallcap — broader market slices
+│   │   └── India VIX                — expected 30-day volatility ("fear gauge")
+│   ├── Mutual fund types
+│   │   ├── Equity (large/mid/small/flexi cap) — by company size mandate
+│   │   ├── Index funds              — copy an index, lowest cost, no manager bets
+│   │   ├── Debt funds               — bonds and money-market instruments
+│   │   ├── Hybrid funds             — mix of equity + debt
+│   │   └── ELSS                     — tax-saving equity fund, 3-year lock-in
+│   ├── Plans & mechanics
+│   │   ├── Direct vs Regular        — Direct = no distributor commission, cheaper
+│   │   ├── NAV                      — per-unit value, updated daily
+│   │   ├── Expense ratio            — annual fee; compounding enemy
+│   │   ├── SIP / SWP / STP          — systematic invest / withdraw / transfer
+│   │   └── Exit load                — penalty for early redemption
+│   ├── ETFs
+│   │   ├── Index ETFs               — trade like a stock, track an index
+│   │   ├── Gold / Silver ETFs       — precious metals without physical storage
+│   │   └── International ETFs       — Nasdaq/S&P exposure (watch the premium to NAV)
+│   └── Where to compare
+│       ├── Value Research           — fund ratings, portfolios, history
+│       ├── Morningstar India        — independent fund research
+│       └── AMFI                     — official industry data body
+│
+├── 08 COMMODITIES & CURRENCY  (beyond company shares)
+│   ├── Commodities
+│   │   ├── Bullion                  — gold, silver (safe haven, inflation hedge)
+│   │   ├── Energy                   — crude oil, natural gas (macro-sensitive)
+│   │   ├── Base metals              — copper, zinc, aluminium (economy proxy)
+│   │   └── Agri                     — on NCDEX; spices, oilseeds, cotton
+│   ├── Currency
+│   │   ├── USD/INR                  — most-watched pair for Indian markets
+│   │   └── Cross pairs              — EUR/INR, GBP/INR, JPY/INR
+│   └── Why it matters to stocks
+│       ├── Crude ↑                  — hurts India (net importer), helps upstream oil
+│       ├── Rupee ↓                  — helps IT/pharma exporters, hurts importers
+│       └── Gold ↑                   — often signals risk-off sentiment
+│
+├── 09 PRIMARY MARKET  (how companies come to the market)
+│   ├── Issue types
+│   │   ├── IPO                      — first public share sale
+│   │   ├── FPO                      — follow-on issue by an already listed company
+│   │   ├── OFS                      — existing holders sell via the exchange
+│   │   └── QIP                      — fast raise from institutions only
+│   ├── IPO mechanics
+│   │   ├── DRHP / RHP               — draft and final offer documents (read these)
+│   │   ├── Price band               — the range investors bid within
+│   │   ├── Categories               — QIB / NII (HNI) / Retail quotas
+│   │   ├── Anchor investors         — institutions locking in a day early
+│   │   ├── ASBA / UPI mandate       — money blocked, not debited, until allotment
+│   │   └── Listing day              — first day of trading; gain/loss vs issue price
+│   └── Signals people watch
+│       ├── Subscription multiple    — demand vs shares on offer, by category
+│       └── Grey market premium (GMP) — unofficial, unregulated — sentiment only
+│
+├── 10 ORDERS & TRADE LIFECYCLE  (what happens after you press Buy)
+│   ├── Order types
+│   │   ├── Market                   — fill now at best available price
+│   │   ├── Limit                    — fill only at your price or better
+│   │   ├── Stop-loss (SL / SL-M)    — triggers an exit once price hits a level
+│   │   ├── GTT                      — standing order valid for up to a year
+│   │   ├── Bracket / Cover          — entry + target + stop in one order
+│   │   └── AMO                      — placed after hours, sent at next open
+│   ├── Product types
+│   │   ├── CNC / Delivery           — buy and hold in your demat
+│   │   ├── MIS / Intraday           — auto-squared off same day
+│   │   ├── NRML                     — carry-forward F&O positions
+│   │   └── MTF                      — broker-funded leverage on delivery (interest cost)
+│   ├── Market sessions (NSE equity)
+│   │   ├── Pre-open                 — 9:00–9:15, sets the opening price
+│   │   ├── Normal market            — 9:15–15:30
+│   │   └── Closing session          — closing price = weighted avg of last 30 min
+│   ├── Settlement
+│   │   ├── T+1                      — standard; shares/money credited next day
+│   │   └── T+0 (optional)           — same-day settlement in select stocks
+│   └── Costs on every trade
+│       ├── Brokerage                — broker's fee (flat or %)
+│       ├── STT                      — securities transaction tax (higher on F&O)
+│       ├── Exchange + SEBI fees     — small turnover charges
+│       ├── Stamp duty               — state levy on buy side
+│       └── GST                      — on brokerage + exchange charges
+│
+├── 11 BROKERS & TRADING PLATFORMS  (your gateway to the exchange)
+│   ├── Discount brokers
+│   │   ├── Zerodha (Kite)           — the benchmark: clean UI, Varsity, stable
+│   │   ├── Groww                    — simplest onboarding; largest active client base
+│   │   ├── Upstox                   — competitive pricing, good API
+│   │   ├── Angel One                — discount pricing + full-service reach
+│   │   └── Dhan                     — trader-focused, fast UI, strong options tools
+│   ├── Full-service brokers
+│   │   ├── ICICI Direct / HDFC Sec / Kotak Sec — bank-linked, research, higher fees
+│   │   └── Motilal Oswal            — research-heavy, advisory model
+│   ├── Account types
+│   │   ├── Demat account            — holds your securities
+│   │   ├── Trading account          — places orders
+│   │   └── Bank linkage             — UPI / mandates for funds
+│   └── Global access from India
+│       ├── LRS route                — up to $250k/year abroad (TCS applies)
+│       ├── INDmoney / Vested        — buy US stocks from India
+│       └── GIFT City platforms      — US stocks via IFSC route
+│
+├── 12 MARKET DATA & APIs  (the raw feed for analysis and automation)
+│   ├── Data types
+│   │   ├── Tick data                — every trade, the finest grain
+│   │   ├── OHLCV                    — open/high/low/close/volume per candle
+│   │   ├── Market depth (L2)        — top 5/20 bid & ask levels
+│   │   ├── Option chain             — all strikes with OI, IV, Greeks
+│   │   └── Fundamentals             — financial statements, ratios
+│   ├── Broker APIs
+│   │   ├── Kite Connect (Zerodha)   — most documented, paid, rock-solid
+│   │   ├── Upstox API               — free, WebSocket feed
+│   │   ├── Dhan HQ API              — free, trader-focused
+│   │   ├── Angel SmartAPI           — free, widely used by algo hobbyists
+│   │   └── Fyers API                — free, good historical data
+│   ├── Data vendors
+│   │   ├── TrueData / Global Datafeeds — authorised NSE real-time vendors
+│   │   ├── NSE official data products  — licensed historical and EOD data
+│   │   └── yfinance                     — free, unofficial, fine for learning only
+│   └── Global
+│       ├── Bloomberg Terminal       — institutional gold standard (expensive)
+│       ├── Refinitiv (LSEG)         — institutional data + news
+│       └── Polygon / Alpha Vantage  — developer-friendly US data APIs
+│
+├── 13 FUNDAMENTAL ANALYSIS  (what is the business actually worth?)
+│   ├── Financial statements
+│   │   ├── Income statement (P&L)   — revenue, costs, profit
+│   │   ├── Balance sheet            — what it owns vs what it owes
+│   │   └── Cash flow statement      — real cash in/out (hardest to fake)
+│   ├── Key ratios
+│   │   ├── P/E                      — price vs earnings (how expensive)
+│   │   ├── P/B                      — price vs book value (banks, asset-heavy)
+│   │   ├── EV/EBITDA                — valuation that ignores capital structure
+│   │   ├── ROE / ROCE               — how well capital is turned into profit
+│   │   ├── Debt/Equity              — leverage risk
+│   │   └── PEG                      — P/E adjusted for growth
+│   ├── Valuation methods
+│   │   ├── DCF                      — present value of future cash flows
+│   │   ├── Relative valuation       — compare multiples with peers
+│   │   └── Sum-of-the-parts         — value each business separately (conglomerates)
+│   ├── Qualitative
+│   │   ├── Moat                     — durable competitive advantage
+│   │   ├── Management quality       — capital allocation, governance, track record
+│   │   ├── Promoter pledging        — pledged shares = red flag
+│   │   └── Annual report + concalls — management's own words, read the notes
+│   └── Tools
+│       ├── Screener.in              — best free Indian fundamentals + custom screens
+│       ├── Tijori Finance           — segment and business-level data
+│       ├── Trendlyne                — screeners, scores, broker targets
+│       └── Tickertape               — clean UI, quick stock overview
+│
+├── 14 TECHNICAL ANALYSIS  (what is price and volume telling you?)
+│   ├── Chart types
+│   │   ├── Candlestick              — the default; OHLC in one bar
+│   │   ├── Line / bar               — simpler views
+│   │   └── Heikin-Ashi / Renko      — smoothed views that filter noise
+│   ├── Price structure
+│   │   ├── Support / resistance     — levels where buying/selling clusters
+│   │   ├── Trend / trendlines       — higher highs & lows vs lower highs & lows
+│   │   ├── Chart patterns           — head & shoulders, triangles, flags, double tops
+│   │   └── Candlestick patterns     — doji, engulfing, hammer (context-dependent)
+│   ├── Indicators
+│   │   ├── Moving averages (SMA/EMA) — trend direction and dynamic support
+│   │   ├── RSI                      — momentum; overbought/oversold
+│   │   ├── MACD                     — trend + momentum crossover
+│   │   ├── Bollinger Bands          — volatility envelope
+│   │   ├── VWAP                     — intraday fair-price benchmark
+│   │   ├── Supertrend               — popular Indian intraday trend filter
+│   │   └── ATR                      — volatility in points (sizes stops)
+│   ├── Volume & derivatives data
+│   │   ├── Volume profile           — where most trading happened by price
+│   │   ├── OI analysis              — build-up / unwinding tells positioning
+│   │   └── PCR                      — put-call ratio, sentiment gauge
+│   ├── Frameworks
+│   │   ├── Dow Theory               — the origin of trend analysis
+│   │   ├── Elliott Wave             — wave-count structure (subjective)
+│   │   └── Multi-timeframe analysis — align higher and lower timeframes
+│   └── Tools
+│       ├── TradingView              — the standard charting platform + Pine Script
+│       ├── ChartInk                 — free Indian technical scanners
+│       └── Broker charts (Kite/Dhan) — TradingView-based, trade from chart
+│
+├── 15 TRADING & INVESTING STYLES  (pick a time horizon first)
+│   ├── Trading
+│   │   ├── Scalping                 — seconds to minutes, many small trades
+│   │   ├── Intraday                 — open and close the same day
+│   │   ├── Swing                    — days to weeks, ride a single move
+│   │   └── Positional               — weeks to months, trend-following
+│   ├── Investing
+│   │   ├── Value investing          — buy below intrinsic worth (Graham/Buffett)
+│   │   ├── Growth investing         — pay up for fast-growing businesses
+│   │   ├── Quality investing        — high ROCE, durable moats, hold long
+│   │   ├── Dividend investing       — steady cash payers
+│   │   └── Passive / index          — own the market, minimal decisions
+│   └── Hybrid approaches
+│       ├── Momentum                 — buy what's rising, sell what's falling
+│       ├── Sector rotation          — move between sectors by cycle
+│       └── Core-satellite           — index core + a few active bets
+│
+├── 16 OPTIONS STRATEGY & GREEKS  (options are about probability, not direction alone)
+│   ├── Pricing
+│   │   ├── Intrinsic vs time value  — real value now vs hope value
+│   │   ├── Implied volatility (IV)  — market's expected move baked into premium
+│   │   ├── IV percentile / rank     — is premium cheap or expensive vs history
+│   │   └── Black-Scholes            — the classic theoretical pricing model
+│   ├── Greeks
+│   │   ├── Delta                    — change in premium per 1-point move
+│   │   ├── Gamma                    — how fast delta changes (explodes near expiry)
+│   │   ├── Theta                    — daily time decay (sellers' friend)
+│   │   ├── Vega                     — sensitivity to IV changes
+│   │   └── Rho                      — sensitivity to interest rates (minor)
+│   ├── Directional
+│   │   ├── Long call / long put     — simple bet, limited loss
+│   │   ├── Bull / bear spreads      — capped profit, cheaper, defined risk
+│   │   └── Covered call             — earn premium on stock you own
+│   ├── Neutral / volatility
+│   │   ├── Straddle / strangle      — bet on big move (long) or no move (short)
+│   │   ├── Iron condor              — range-bound, defined-risk premium selling
+│   │   ├── Butterfly                — pin to a price, cheap, defined risk
+│   │   └── Calendar spread          — exploit time-decay difference across expiries
+│   ├── Hedging
+│   │   ├── Protective put           — insurance on a holding
+│   │   └── Collar                   — put funded by selling a call
+│   └── Tools
+│       ├── Sensibull                — India's leading options strategy builder
+│       ├── Opstra                   — payoff diagrams, IV charts, backtests
+│       └── Broker option chains     — live Greeks and OI inside your terminal
+│
+├── 17 QUANT & ALGORITHMIC TRADING  (rules → code → automated execution)
+│   ├── Strategy families
+│   │   ├── Trend-following          — systematic momentum on price
+│   │   ├── Mean reversion           — bet that stretched prices snap back
+│   │   ├── Statistical arbitrage    — pairs trading, cointegration
+│   │   ├── Market making            — quote both sides, earn spread (needs speed)
+│   │   ├── Options-selling systems  — systematic premium harvesting with hedges
+│   │   └── Factor investing         — value, momentum, quality, low-vol factors
+│   ├── The pipeline
+│   │   ├── Idea / hypothesis        — why should this edge exist?
+│   │   ├── Data cleaning            — adjust for splits, bonuses, survivorship
+│   │   ├── Backtest                 — test rules on historical data
+│   │   ├── Walk-forward / OOS test  — validate on data the strategy never saw
+│   │   ├── Paper trading            — live market, fake money
+│   │   └── Live with small size     — scale only after real fills match backtest
+│   ├── Backtest traps
+│   │   ├── Overfitting / curve-fitting — great past, useless future
+│   │   ├── Look-ahead bias           — accidentally using future data
+│   │   ├── Survivorship bias         — testing only on stocks that still exist
+│   │   └── Ignoring costs/slippage   — the silent profit killer
+│   ├── Tools & languages
+│   │   ├── Python (pandas, NumPy)   — the default quant stack
+│   │   ├── Backtrader / VectorBT    — Python backtesting engines
+│   │   ├── TradingView Pine Script  — fastest way to test chart ideas
+│   │   ├── AmiBroker                — popular with Indian system traders
+│   │   └── QuantConnect             — cloud backtesting + live (global markets)
+│   ├── Indian algo platforms
+│   │   ├── Streak (Zerodha)         — no-code strategy building
+│   │   ├── Tradetron                — strategy marketplace + automation
+│   │   └── AlgoTest                 — options backtesting and deployment
+│   └── Regulation
+│       └── SEBI retail algo framework — algos via broker API must be registered / tagged
+│
+├── 18 RISK MANAGEMENT  (survive first, profit second)
+│   ├── Position sizing
+│   │   ├── Fixed % risk per trade   — e.g. risk 1% of capital per trade
+│   │   ├── Kelly criterion          — mathematically optimal size (use a fraction)
+│   │   └── Volatility-based sizing  — size by ATR so every trade risks the same
+│   ├── Trade-level controls
+│   │   ├── Stop-loss                — pre-decided exit if wrong
+│   │   ├── Risk:reward ratio        — target vs stop distance
+│   │   └── Trailing stop            — lock in profit as price moves
+│   ├── Portfolio-level controls
+│   │   ├── Max drawdown limit       — stop trading after X% peak-to-trough loss
+│   │   ├── Daily loss limit         — walk away for the day
+│   │   ├── Diversification          — don't let one stock/sector sink you
+│   │   └── Correlation awareness    — 5 bank stocks ≠ 5 positions
+│   ├── Metrics
+│   │   ├── Win rate × avg win/loss  — expectancy, the only number that matters
+│   │   ├── Sharpe / Sortino         — return per unit of risk
+│   │   ├── Max drawdown             — worst peak-to-trough fall
+│   │   └── CAGR / XIRR              — annualised return (XIRR for SIP cash flows)
+│   └── Tail risk
+│       ├── Gap risk                 — overnight news jumps past your stop
+│       └── Black swans              — rare, extreme events (2008, 2020)
+│
+├── 19 PORTFOLIO CONSTRUCTION  (putting it all together for the long run)
+│   ├── Asset allocation
+│   │   ├── Equity / debt / gold mix — decides most of long-term return and risk
+│   │   ├── Age / goal-based         — horizon drives how much risk you can take
+│   │   └── Rebalancing              — reset to target mix periodically
+│   ├── Goal mapping
+│   │   ├── Emergency fund           — 6 months expenses, NOT in stocks
+│   │   ├── Short-term goals (<3y)   — debt / FDs
+│   │   └── Long-term goals (>7y)    — equity-heavy
+│   ├── Theory
+│   │   ├── Modern Portfolio Theory  — diversify to improve risk-adjusted return
+│   │   ├── Efficient frontier       — best return for each level of risk
+│   │   └── Beta                     — how much a stock moves vs the market
+│   └── Tracking tools
+│       ├── Console (Zerodha) / broker P&L — official holdings and tax P&L
+│       ├── INDmoney / Kuvera          — consolidate MF + stocks + net worth
+│       └── CAS statement (CDSL/NSDL)  — one consolidated view of all holdings
+│
+├── 20 MACRO & MARKET DRIVERS  (forces bigger than any single stock)
+│   ├── Domestic
+│   │   ├── RBI policy (repo rate)   — rates ↓ usually good for equities
+│   │   ├── Inflation (CPI / WPI)    — drives RBI decisions
+│   │   ├── GDP growth                — earnings backdrop
+│   │   ├── Union Budget              — taxes, spending, sector winners
+│   │   └── Quarterly earnings season — the real driver of individual stocks
+│   ├── Global
+│   │   ├── US Fed policy             — dollar strength pulls FII money in/out of India
+│   │   ├── US bond yields            — higher yields = pressure on emerging markets
+│   │   ├── Crude oil                  — India's biggest macro sensitivity
+│   │   └── Geopolitics                — wars, trade wars, sanctions
+│   ├── Flows & sentiment
+│   │   ├── FII vs DII flows          — who's buying the dip
+│   │   ├── SIP inflows                — the steady domestic bid under the market
+│   │   └── India VIX                  — fear/complacency reading
+│   └── Calendars to follow
+│       ├── Economic calendar         — data release dates (Investing.com, Trading Economics)
+│       └── Corporate results calendar — NSE / BSE announcements
+│
+├── 21 TAXATION (INDIA)  (what you keep is what counts)
+│   ├── Capital gains on listed equity
+│   │   ├── STCG (held ≤ 12 months)  — 20%
+│   │   └── LTCG (held > 12 months)  — 12.5% above ₹1.25 lakh/year exemption
+│   ├── Trading income
+│   │   ├── Intraday equity          — speculative business income (slab rate)
+│   │   ├── F&O                      — non-speculative business income (slab rate)
+│   │   └── Tax audit thresholds     — apply on turnover; check yearly
+│   ├── Other
+│   │   ├── Dividends                — taxed at your slab rate
+│   │   ├── Debt MFs (post-Apr 2023) — gains taxed at slab rate
+│   │   ├── Loss set-off / carry forward — losses can offset gains (rules by type)
+│   │   └── Tax-loss harvesting      — book losses to cut tax, rebuy later
+│   ├── Forms
+│   │   ├── ITR-2                    — capital gains only
+│   │   ├── ITR-3                    — business income (intraday / F&O)
+│   │   └── AIS / 26AS               — pre-filled record of your transactions
+│   └── Reality check
+│       └── Rates change in Budgets — verify the current year before filing
+│
+├── 22 REGULATION, COMPLIANCE & INVESTOR PROTECTION  (the rules of the road)
+│   ├── Market conduct
+│   │   ├── Insider trading (PIT Regs) — trading on unpublished info is illegal
+│   │   ├── Front-running / manipulation — pump-and-dump, circular trading
+│   │   └── Disclosure norms (LODR)  — what listed companies must announce
+│   ├── Advice & intermediaries
+│   │   ├── SEBI RIA                 — registered investment adviser (fee-only)
+│   │   ├── SEBI RA                  — registered research analyst (stock calls)
+│   │   ├── Finfluencer rules        — unregistered paid stock tips are prohibited
+│   │   └── Check registration       — always verify on SEBI's intermediary list
+│   ├── Surveillance tools
+│   │   ├── ASM / GSM lists          — exchange flags for unusual, risky stocks
+│   │   └── T2T segment              — no intraday allowed, delivery only
+│   ├── Investor protection
+│   │   ├── SCORES                   — SEBI's online complaint portal
+│   │   ├── SMART ODR                — online dispute resolution with brokers/AMCs
+│   │   ├── Nominee & KYC            — keep updated to avoid frozen accounts
+│   │   └── Investor Protection Fund — exchange-run compensation for broker default
+│   └── Scams to recognise
+│       ├── "Guaranteed returns" tip groups — always a scam
+│       ├── Fake trading apps / IPO allotment frauds
+│       └── Account handling / PMS without registration
+│
+├── 23 BEHAVIOURAL FINANCE  (the biggest risk is usually you)
+│   ├── Biases
+│   │   ├── Loss aversion            — losses hurt ~2x more than gains feel good
+│   │   ├── Confirmation bias        — seeking only info that agrees with you
+│   │   ├── Overconfidence           — a few wins ≠ skill
+│   │   ├── Recency bias             — assuming the recent past continues forever
+│   │   ├── Anchoring                — fixating on your buy price
+│   │   ├── Herd / FOMO              — buying because everyone else is
+│   │   └── Disposition effect       — selling winners early, holding losers
+│   ├── Trader psychology
+│   │   ├── Revenge trading          — trying to win back losses immediately
+│   │   ├── Overtrading              — activity mistaken for progress
+│   │   └── Discipline > prediction  — follow the system, not the feeling
+│   ├── Practices
+│   │   ├── Trading journal          — record why you entered, not just P&L
+│   │   ├── Pre-written trading plan — decide before the market opens
+│   │   └── Rules-based systems      — remove in-the-moment decisions
+│   └── Books
+│       ├── The Psychology of Money (Housel) — behaviour over spreadsheets
+│       ├── Thinking, Fast and Slow (Kahneman) — the science of bias
+│       └── Trading in the Zone (Douglas)     — the trader's mindset classic
+│
+├── 24 GLOBAL MARKETS  (the context India trades inside)
+│   ├── Major exchanges
+│   │   ├── NYSE / Nasdaq (US)       — largest, sets global risk mood
+│   │   ├── LSE (UK)                 — Europe's financial hub
+│   │   ├── Tokyo / Hong Kong / Shanghai — key Asian sessions before India opens
+│   │   └── CME                       — global futures (rates, indices, commodities)
+│   ├── Global benchmarks
+│   │   ├── S&P 500                  — the world's reference equity index
+│   │   ├── Nasdaq 100               — tech-heavy growth benchmark
+│   │   ├── Dow Jones                — oldest, price-weighted, 30 stocks
+│   │   ├── MSCI EM / MSCI India     — indices that steer passive FII money
+│   │   └── US VIX                   — global fear gauge
+│   ├── Pre-market signals for India
+│   │   ├── GIFT Nifty               — indicates Nifty's likely open
+│   │   ├── US close + futures       — overnight risk sentiment
+│   │   └── Asian markets            — open before NSE
+│   └── Other asset classes in the news
+│       ├── Crypto                   — separate, largely unregulated as securities in India; 30% flat tax
+│       └── Private markets          — VC/PE; pre-IPO shares (illiquid, risky)
+│
+└── 25 CAREERS, CERTIFICATIONS & LEARNING  (staying current)
+    ├── Roles
+    │   ├── Equity research analyst  — values companies, writes reports
+    │   ├── Fund manager             — runs a portfolio against a benchmark
+    │   ├── Quant researcher / dev   — builds and codes systematic strategies
+    │   ├── Dealer / trader          — executes for a firm or clients
+    │   ├── Risk manager             — keeps the firm within limits
+    │   └── Investment adviser (RIA) — fee-based financial advice
+    ├── Certifications
+    │   ├── NISM series              — mandatory for many SEBI-regulated roles
+    │   ├── CFA                      — global gold standard for investment analysis
+    │   ├── FRM                      — risk management specialisation
+    │   └── CMT                      — technical analysis credential
+    ├── Staying current
+    │   ├── Moneycontrol / ET Markets / Mint — daily Indian market news
+    │   ├── NSE / BSE announcements    — primary source for company filings
+    │   ├── SEBI circulars              — rule changes affecting traders
+    │   └── Concall transcripts          — management commentary each quarter
+    ├── Books
+    │   ├── The Intelligent Investor (Graham) — the value-investing foundation
+    │   ├── One Up on Wall Street (Lynch)     — investing from everyday observation
+    │   ├── Options as a Strategic Investment (McMillan) — options reference
+    │   └── Market Wizards (Schwager)         — how real traders think
+    └── Practice
+        ├── Paper trading / simulators       — learn mechanics without losing money
+        ├── Small real capital               — feel real emotions at low stakes
+        └── Journal + review every month     — the only way skill compounds
+
+
+================================================================================
+  END. Edit freely in Notepad++ / any text editor. 25 domains total.
+================================================================================

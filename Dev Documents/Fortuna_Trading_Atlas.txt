@@ -1,0 +1,681 @@
+================================================================================
+  FORTUNA TRADING ATLAS (2026+)
+  Every trading topic worth knowing — indicators, structure, liquidity, flows,
+  options, regimes, validation — drawn from the standard books and the
+  academic studies, mapped onto Fortuna's modules.
+  Scope: TRADING ONLY (no long-term investing, tax, careers).
+--------------------------------------------------------------------------------
+  LEGEND
+    — note        what it is / why it matters
+    [Author Year] the book or study it comes from (go-to source to read)
+    {E+}          strong evidence (peer-reviewed, replicated)
+    {E~}          mixed evidence (works in some markets/periods, decays, or
+                  works only before costs)
+    {E-}          weak or no evidence in studies
+    {P}           practitioner knowledge only (widely used, not formally tested)
+    ★             already decided / built in Fortuna
+    ⇒ F:          where it lives in Fortuna
+                  (backend/modules/Module_F_Tech_Indicators_Funnel/<folder>)
+
+  How to use the tags (the Fortuna rule for building rules):
+    books first → better study? (the {E} tag) → your own chart observations
+    → finalise → code.
+  {E-} and {P} items are not thrown away. Store them as low-weight labels,
+  because market behaviour changes.
+================================================================================
+
+
+FORTUNA TRADING UNIVERSE
+│
+├── 01 FOUNDATIONS OF PRICE  (why charts work at all)
+│   ├── Classical theory
+│   │   ├── Dow Theory              — primary/secondary/minor trends; HH-HL defines uptrend [Rhea 1932]
+│   │   ├── Trend persistence       — "trend is your friend" is the oldest rule [Edwards & Magee 1948]
+│   │   └── The standard reference  — whole field in one book [Murphy 1999]
+│   ├── Market efficiency debate
+│   │   ├── Efficient Market Hypothesis — prices reflect all info, no edge [Fama 1970]
+│   │   ├── Adaptive Markets Hypothesis — edges appear, decay, reappear as conditions change [Lo 2004] {E+}
+│   │   └── Fortuna takeaway        — re-test every rule regularly; no edge is permanent
+│   ├── Auction theory
+│   │   └── Price moves to find buyers/sellers; balance (range) ↔ imbalance (trend) [Dalton 1990] {P}
+│   └── Evidence-based mindset
+│       ├── Evidence-Based Technical Analysis — test TA like science, beware data mining [Aronson 2006]
+│       └── Survey of TA profitability — ~half of modern studies find profits, many vanish after costs [Park & Irwin 2007] {E~}
+│
+├── 02 DATA FOUNDATION  (bad candles = bad signals)   ⇒ F: data layer / reader rules
+│   ├── Candle construction
+│   │   ├── OHLCV per timeframe     — native vs resampled (1W/1Mo built from 1D) ★
+│   │   ├── Session boundaries      — drop post-15:30 bars, treat special sessions as short days ★
+│   │   └── Official daily close    — use exchange close for signals, not last intraday tick ★
+│   ├── Adjustments
+│   │   ├── Splits / bonus          — must back-adjust or indicators show fake crashes
+│   │   ├── Demergers               — price drop is not a real sell-off (needs an adjustment factor)
+│   │   └── Dividends               — matter for long backtests on high-yield stocks
+│   ├── Biases in historical data
+│   │   ├── Survivorship bias       — testing only today's F&O list overstates returns [Kaufman 2019]
+│   │   ├── Look-ahead bias         — using data not available at decision time [Chan 2008]
+│   │   └── Bad ticks / zero prices — filter before any calculation ★
+│   └── Parity rule
+│       └── Match TradingView formulas (seeding, smoothing) so values equal your chart ★
+│
+├── 03 PRICE ACTION & CANDLES  (reading single bars and bar sequences)   ⇒ F: price_action/
+│   ├── Candle anatomy
+│   │   ├── Body vs wick            — body = conviction, wick = rejection
+│   │   ├── Range / body ratio      — measures candle strength (strong-break measure)
+│   │   └── Close location value    — where close sits in the bar's range (0–1)
+│   ├── Candlestick patterns
+│   │   ├── Doji / hammer / shooting star — single-bar rejection signals [Nison 1991]
+│   │   ├── Engulfing / harami      — two-bar reversal signals [Nison 1991]
+│   │   ├── Morning / evening star  — three-bar reversals [Nison 1991]
+│   │   └── Evidence                — little standalone value on US index data [Marshall, Young & Rose 2006] {E-}
+│   │                                 → use only AT a level (context), never alone
+│   ├── Bar-by-bar price action
+│   │   ├── Trend bars vs trading-range bars — who is in control this bar [Brooks 2011] {P}
+│   │   ├── Inside bar / outside bar — compression vs expansion
+│   │   ├── NR4 / NR7               — narrowest range in 4/7 bars → breakout often follows [Crabel 1990] {P}
+│   │   └── Two-legged pullbacks    — most pullbacks come in two pushes [Brooks 2012] {P}
+│   └── Gaps
+│       ├── Common / breakaway / runaway / exhaustion gaps [Edwards & Magee 1948]
+│       ├── Gap through level       — counts as a retest / double top hit ★ (open item)
+│       └── Strong candle + gap     — continuation of strong trend (your observation) ★
+│
+├── 04 MARKET STRUCTURE  (swings, trend, range, phase)   ⇒ F: price_action/
+│   ├── Swing detection
+│   │   ├── Zig Zag (deviation % + depth) — per-TF settings (1D 5%/10, 5m 0.2%/10) ★
+│   │   ├── Fractals (Williams)     — 2-bar each side swing point [Williams 1995] {P}
+│   │   └── ATR-based swings        — deviation scales with volatility (alternative to fixed %)
+│   ├── Structure labels
+│   │   ├── HH / HL / LH / LL       — the core definition of trend [Rhea 1932; Murphy 1999]
+│   │   ├── Equal highs / lows      — double/triple tops by tolerance ★
+│   │   ├── BOS (break of structure) — trend continuation break ★
+│   │   ├── CHoCH (change of character) — first break against trend ★
+│   │   └── Break attempt (wick only) vs confirmed break (close) ★
+│   ├── Trend phases
+│   │   ├── Accumulation → markup → distribution → markdown [Wyckoff via Pruden 2007] {P}
+│   │   ├── Stage analysis 1–4      — basing / advancing / topping / declining, 30-week MA [Weinstein 1988] {P}
+│   │   └── Impulse vs correction   — trend legs vs pullbacks [Grimes 2012]
+│   ├── Pullback quality
+│   │   ├── Depth                   — shallow pullbacks = strong trend [Grimes 2012]
+│   │   ├── Duration                — short, overlapping pullbacks continue the trend
+│   │   └── Failure test            — pullback breaks prior HL → trend in doubt
+│   └── Wyckoff events
+│       ├── Spring / upthrust       — false break below/above range, then reversal [Pruden 2007] {P}
+│       ├── Selling / buying climax — high-volume exhaustion
+│       └── Sign of strength / weakness — first decisive move out of a range [Weis 2013] {P}
+│
+├── 05 SUPPORT & RESISTANCE  (where price reacts)   ⇒ F: support_resistance_levels/
+│   ├── Level types
+│   │   ├── Swing highs / lows      — the base level set ★
+│   │   ├── Horizontal zones        — from lowest monthly price upward (your method) ★
+│   │   ├── Role reversal           — broken resistance becomes support [Edwards & Magee 1948]
+│   │   ├── Round numbers           — prices cluster at 00/50 levels [Osler 2003] {E+}
+│   │   ├── Prior day/week/month high-low-close — widely watched reference levels {P}
+│   │   └── Moving averages as dynamic S/R — 50/100/200 EMA reactions ★
+│   ├── Evidence
+│   │   └── Published S/R levels predict intraday trend interruptions [Osler 2000] {E~}
+│   ├── Pivot-based levels
+│   │   ├── Floor pivots (P, R1–R3, S1–S3) — previous day H/L/C formula {P}
+│   │   ├── CPR (central pivot range) — narrow CPR → trending day, wide → range day [Ochoa 2010] {P} ★ (PRE-4)
+│   │   └── Camarilla pivots        — tighter intraday levels {P}
+│   ├── Level strength scoring
+│   │   ├── Number of touches       — more touches = more watched
+│   │   ├── Timeframe of origin     — monthly level > 5m level
+│   │   ├── Volume at level         — high-volume nodes hold better (see 14)
+│   │   └── Recency                 — recent levels matter more
+│   └── Break & retest
+│       ├── Throwback / pullback rates after breakouts — Bulkowski measured per pattern [Bulkowski 2021] {P}
+│       ├── No-retest breaks        — stronger continuation ★
+│       └── Labels: retest / held / failed / gap ★
+│
+├── 06 TRENDLINES & CHANNELS  (diagonal S/R)   ⇒ F: support_resistance_levels/
+│   ├── Trendlines
+│   │   ├── Through most touches    — your method ★
+│   │   ├── Trendline fan           — steeper lines as trend accelerates; break → next line ★
+│   │   └── Validity rules          — ≥3 touches, longer = more significant [Edwards & Magee 1948; Murphy 1999]
+│   ├── Channels
+│   │   ├── Parallel channel        — trendline + parallel through opposite swing
+│   │   ├── Regression channel      — statistical best-fit line ± std dev
+│   │   └── Andrews' pitchfork      — three-swing median-line channel {P}
+│   └── Envelope channels (rule-based)
+│       ├── Donchian (N-bar high/low) — the Turtle breakout channel [Faith 2007]
+│       ├── Keltner (EMA ± ATR)     — volatility channel [Keltner 1960; modern ATR version Raschke]
+│       └── Bollinger (SMA ± 2σ)    — see 12
+│
+├── 07 CHART PATTERNS  (multi-swing shapes)   ⇒ F: price_action/ (chart patterns stage)
+│   ├── Reversal
+│   │   ├── Double / triple top & bottom ★ (tolerance rules decided)
+│   │   ├── Head & shoulders / inverse
+│   │   └── Rounding top / bottom
+│   ├── Continuation
+│   │   ├── Flags & pennants        — short pause in strong trend
+│   │   ├── Triangles               — ascending / descending / symmetrical
+│   │   ├── Rectangles              — range inside a trend
+│   │   └── Cup & handle            — base then breakout [O'Neil 1988]
+│   ├── Volatility-contraction patterns
+│   │   └── VCP                     — successively tighter pullbacks before breakout [Minervini 2013] {P}
+│   ├── Sources
+│   │   ├── Pattern statistics (failure rates, average moves, throwbacks) [Bulkowski 2021] {P}
+│   │   └── Original catalogue [Edwards & Magee 1948]
+│   └── Evidence
+│       ├── Patterns detected by algorithm carry some information [Lo, Mamaysky & Wang 2000] {E~}
+│       └── Head & shoulders profitable in FX tests, decays later [Osler & Chang 1995] {E~}
+│
+├── 08 TREND INDICATORS  (direction and strength of trend)   ⇒ F: trend_indicators/
+│   ├── Moving averages
+│   │   ├── EMA stack 5/13/26/50/100/200 (daily) — strongest uptrend when fully ordered ★
+│   │   ├── Price vs EMA crosses / EMA vs EMA crosses ★
+│   │   ├── Golden / death cross (50/200) ★
+│   │   ├── SMA / WMA / HMA         — alternative smoothings (HMA = less lag)
+│   │   └── KAMA                    — adapts speed to trend efficiency [Kaufman 2019]
+│   ├── MACD
+│   │   ├── MACD line / signal / histogram — trend + momentum in one [Appel 2005] ★
+│   │   └── PPO                     — MACD in %, comparable across stocks (Fortuna extra)
+│   ├── Trend strength
+│   │   ├── ADX / +DI / −DI         — trend strength regardless of direction; ADX>25 = trending [Wilder 1978] {P}
+│   │   ├── Aroon                   — time since last high/low [Chande 1995] {P}
+│   │   └── Linear regression slope — trend angle, objective
+│   ├── Trailing trend systems
+│   │   ├── Supertrend (ATR-based)  — popular Indian intraday filter {P}
+│   │   ├── Parabolic SAR           — accelerating trailing stop [Wilder 1978] {P}
+│   │   └── Ichimoku cloud          — trend + S/R + momentum system [Patel 2010] {P}
+│   └── Evidence
+│       ├── Moving-average rules predicted DJIA 1897–1986 [Brock, Lakonishok & LeBaron 1992] {E~}
+│       ├── ...but the edge largely disappeared after (data-snooping check) [Sullivan, Timmermann & White 1999] {E~}
+│       ├── Time-series momentum (trend-following) works across asset classes [Moskowitz, Ooi & Pedersen 2012] {E+}
+│       └── Trend-following profitable over 100+ years [Hurst, Ooi & Pedersen 2017] {E+}
+│
+├── 09 MOMENTUM OSCILLATORS  (speed of move, overbought / oversold)   ⇒ F: momentum_oscillators/
+│   ├── RSI
+│   │   ├── RSI 14 (Wilder smoothing) — 0–100 momentum [Wilder 1978] ★
+│   │   ├── Your zones (80/70/55/45/30/20) with alerts on every zone change ★
+│   │   ├── Range shift             — RSI holds 40–80 in bull trends, 20–60 in bear trends [Brown 1999] {P}
+│   │   │                             (this is the book behind your RSI ~55 theory)
+│   │   └── RSI-based MA (SMA 14)   — computed hidden, test later ★
+│   ├── Stochastics
+│   │   ├── Stochastic %K/%D        — close vs recent range [Lane 1984] {P}
+│   │   └── Stoch RSI 14/14/3/3     — stochastic applied to RSI, faster [Chande & Kroll 1994] ★
+│   ├── Other oscillators
+│   │   ├── CCI                     — deviation from average price [Lambert 1980] {P}
+│   │   ├── Williams %R             — inverted fast stochastic [Williams 1979] {P}
+│   │   ├── Rate of Change / Momentum — raw % change over N bars
+│   │   ├── Ultimate Oscillator     — three-timeframe blend [Williams 1985] {P}
+│   │   └── Connors RSI             — short-term mean-reversion composite [Connors & Alvarez 2009] {P}
+│   └── Evidence
+│       ├── Short-term reversal (1 week–1 month) in individual stocks [Jegadeesh 1990; Lehmann 1990] {E+}
+│       ├── Medium-term (3–12 month) momentum continues [Jegadeesh & Titman 1993] {E+}
+│       └── Fortuna takeaway: oversold works for reversal on short horizons, trend wins on longer
+│
+├── 10 DIVERGENCE & CONFIRMATION  (when indicator and price disagree)   ⇒ F: momentum_oscillators/
+│   ├── Regular divergence
+│   │   ├── Bearish                 — price HH, oscillator LH → weakening uptrend [Murphy 1999]
+│   │   └── Bullish                 — price LL, oscillator HL → weakening downtrend
+│   ├── Hidden divergence
+│   │   ├── Hidden bullish          — price HL, oscillator LL → uptrend continuation [Brown 1999] {P}
+│   │   └── Hidden bearish          — price LH, oscillator HH → downtrend continuation
+│   ├── Detection rule
+│   │   └── Compare oscillator values at the SAME Zig Zag swing points (reuses ★ swings)
+│   └── Confirmation
+│       ├── Divergence is a warning, not a trigger — wait for structure break (CHoCH)
+│       └── Multiple-oscillator agreement (RSI + MACD histogram)
+│
+├── 11 VOLUME & MONEY FLOW  (is participation behind the move?)   ⇒ F: volume_moneyflow/
+│   ├── Raw volume
+│   │   ├── Volume vs N-day average — relative volume (RVOL)
+│   │   ├── Volume on breakout      — high volume confirms breakouts [Edwards & Magee 1948]
+│   │   └── High-volume return premium — unusually high volume predicts higher returns [Gervais, Kaniel & Mingelgrin 2001] {E+}
+│   ├── Cumulative volume indicators
+│   │   ├── OBV                     — add volume on up days, subtract on down [Granville 1963] {P}
+│   │   ├── Accumulation/Distribution — weights volume by close location [Chaikin] {P}
+│   │   ├── Chaikin Money Flow      — A/D over N bars [Chaikin] {P}
+│   │   └── MFI                     — volume-weighted RSI [Quong & Soudack 1989] {P}
+│   ├── Volume-price analysis
+│   │   ├── Effort vs result        — big volume + small move = absorption [Weis 2013; Coulling 2013] {P}
+│   │   └── Price-volume relation   — volume rises with absolute price change [Karpoff 1987] {E+}
+│   ├── VWAP family
+│   │   ├── Session VWAP            — intraday fair price; institutional execution benchmark [Berkowitz, Logue & Noser 1988]
+│   │   ├── VWAP bands (±σ)         — stretch from fair value
+│   │   └── Anchored VWAP           — VWAP from a chosen event (swing low, results day) {P}
+│   ├── India-specific
+│   │   ├── Delivery %              — share of volume taken into demat (NSE publishes daily) {P}
+│   │   └── No Nifty index volume   — use Nifty futures volume or constituent volume as proxy ★ (noted gap)
+│   └── Force-type indicators
+│       ├── Force Index             — price change × volume [Elder 1993] {P}
+│       └── Elder-Ray (bull/bear power) — high/low vs EMA [Elder 1993] {P}
+│
+├── 12 VOLATILITY  (how big the moves are)   ⇒ F: volatility_indicators/
+│   ├── Range measures
+│   │   ├── ATR (Wilder)            — average true range, the standard [Wilder 1978]
+│   │   ├── ATR %                   — ATR / price, comparable across stocks
+│   │   └── Daily range vs average  — expansion / contraction days
+│   ├── Statistical measures
+│   │   ├── Historical volatility (close-to-close σ) — annualised
+│   │   ├── Parkinson / Garman-Klass — range-based, more efficient estimates [Parkinson 1980; Garman & Klass 1980]
+│   │   └── Volatility clustering   — high-vol follows high-vol [Engle 1982; Bollerslev 1986] {E+}
+│   ├── Bands & squeezes
+│   │   ├── Bollinger Bands / %B / Bandwidth [Bollinger 2001]
+│   │   ├── Squeeze (BB inside Keltner) — compression before expansion {P}
+│   │   └── Evidence                — BB trading rules mostly unprofitable alone [Lento, Gradojevic & Wright 2007] {E-}
+│   ├── Implied volatility
+│   │   ├── India VIX               — 30-day expected Nifty volatility
+│   │   ├── VIX as fear gauge       — spikes in sell-offs [Whaley 2000] {E+}
+│   │   └── IV vs realised vol      — see 24 (key for options buyers)
+│   └── Fortuna takeaway
+│       └── Volatility predicts the SIZE of the next move well, not its DIRECTION {E+}
+│
+├── 13 LIQUIDITY & MICROSTRUCTURE  (who is trading, and where stops sit)   ⇒ F: NEW (volume_moneyflow/ or own folder)
+│   ├── Academic microstructure
+│   │   ├── Bid-ask spread, depth, resiliency — the three dimensions of liquidity [Harris 2003]
+│   │   ├── Informed vs uninformed traders — price impact reveals information [Kyle 1985; Glosten & Milgrom 1985] {E+}
+│   │   ├── Illiquidity measure     — |return| / traded value [Amihud 2002] {E+}
+│   │   └── Standard textbook       — [O'Hara 1995; Harris 2003]
+│   ├── Order book
+│   │   ├── Market depth (L2)       — size waiting at each price
+│   │   ├── Order book imbalance    — more bids than asks predicts short-term direction [Cont, Kukanov & Stoikov 2014] {E+}
+│   │   └── Spoofing caution        — displayed size can be fake
+│   ├── Stop / liquidity pools (practitioner)
+│   │   ├── Stops cluster beyond obvious highs/lows and round numbers [Osler 2003] {E+}
+│   │   ├── Liquidity sweep / stop hunt — wick through a swing then reversal {P}
+│   │   └── Link to structure       — "break attempt" (wick only) label ★ captures this
+│   ├── Smart Money Concepts (ICT) — all {P}, not formally tested
+│   │   ├── Order blocks            — last opposite candle before a strong move
+│   │   ├── Fair value gaps (FVG)   — 3-candle imbalance gap, often revisited
+│   │   ├── Premium / discount zones — above/below 50% of a swing range
+│   │   └── Inducement / liquidity grab — false move to trap traders
+│   └── Fortuna takeaway
+│       └── Store sweeps / FVGs / order blocks as LABELS, let backtest decide weight
+│
+├── 14 AUCTION MARKET THEORY & PROFILES  (where value was accepted)   ⇒ F: volume_moneyflow/ + support_resistance_levels/
+│   ├── Market Profile (TPO)
+│   │   ├── Value area (70%), POC (point of control) [Steidlmayer; Dalton 1990] {P}
+│   │   ├── Initial balance (first hour range) — sets the day's frame [Dalton 1990] {P}
+│   │   └── Day types               — trend day / normal / neutral / double-distribution [Dalton 1990] {P}
+│   ├── Volume Profile
+│   │   ├── High-volume nodes (HVN) — acceptance, act as S/R
+│   │   ├── Low-volume nodes (LVN)  — rejection, price moves fast through them
+│   │   └── Naked POC               — untested prior POC, often revisited {P}
+│   ├── Open types
+│   │   └── Open-drive / open-test-drive / open-rejection-reverse / open-auction [Dalton 2007] {P}
+│   └── Value migration
+│       └── Value area moving up day after day = trend; overlapping = balance [Dalton 2007] {P}
+│
+├── 15 INTRADAY DYNAMICS  (the 5m trading day)   ⇒ F: PRE gates + intraday engines
+│   ├── Pre-market
+│   │   ├── GIFT Nifty basis        — indicates likely open; adjust for fair value ★ (PRE-2)
+│   │   ├── NSE pre-open session (9:00–9:15) — discovered opening price
+│   │   └── Overnight global cues   — US close, Asian open
+│   ├── Opening
+│   │   ├── Opening range breakout (ORB) — first 5/15/30 min high-low [Crabel 1990] {P}
+│   │   ├── Gap and go vs gap fill  — strong trend days rarely fill the gap
+│   │   └── First-hour range        — initial balance (see 14)
+│   ├── Time-of-day
+│   │   ├── U-shaped volume/volatility — high at open and close, low midday [Admati & Pfleiderer 1988] {E+}
+│   │   ├── Intraday momentum       — first half-hour return predicts last half-hour [Gao, Han, Li & Zhou 2018] {E+}
+│   │   └── Same-time-of-day periodicity in returns [Heston, Korajczyk & Sadka 2010] {E+}
+│   ├── Overnight vs intraday
+│   │   └── Different investors drive overnight vs daytime returns [Lou, Polk & Skouras 2019] {E+}
+│   ├── VWAP behaviour
+│   │   ├── Above VWAP = buyers in control for the session {P}
+│   │   └── VWAP re-entry           — your options re-entry point ★
+│   └── Your method ★
+│       └── 60m Zig Zag sets direction; trade the 5m; S1 entry → R1/R2/R3 bookings
+│
+├── 16 MULTI-TIMEFRAME ANALYSIS  (aligning the four screens)   ⇒ F: combination layer
+│   ├── Classic frameworks
+│   │   ├── Triple Screen           — long TF = tide, middle = wave, short = entry [Elder 1993] {P}
+│   │   ├── Factor of 4–6 between timeframes [Elder 1993]
+│   │   └── Higher TF wins conflicts — trade lower TF in direction of higher TF [Murphy 1999]
+│   ├── Your setup ★
+│   │   ├── 1D / 60m / 15m / 5m screens side by side
+│   │   ├── Provisional higher-TF breaks from lower-TF closes
+│   │   └── Lower-TF last locked swing as temporary lock for higher TF
+│   └── Alignment score
+│       └── Count of timeframes agreeing on direction → confidence input to combination
+│
+├── 17 DERIVATIVES DATA  (what option and futures traders are positioned for)   ⇒ F: volume_moneyflow/ (OI) + options module
+│   ├── Open interest
+│   │   ├── OI + price build-up table
+│   │   │   ├── Price ↑ OI ↑            — long build-up
+│   │   │   ├── Price ↓ OI ↑            — short build-up
+│   │   │   ├── Price ↑ OI ↓            — short covering
+│   │   │   └── Price ↓ OI ↓            — long unwinding  [Murphy 1999] {P}
+│   │   ├── Strike-wise OI concentration — max call OI = resistance, max put OI = support {P}
+│   │   └── Change in OI intraday   — where fresh writing is happening {P}
+│   ├── Ratios
+│   │   ├── PCR (OI and volume)     — sentiment, often contrarian at extremes {E~}
+│   │   └── Option volume informs future stock prices [Pan & Poteshman 2006] {E+}
+│   │                                 (uses non-public data; public PCR is a weaker proxy)
+│   ├── Expiry effects
+│   │   ├── Pinning                 — stocks cluster at strikes on expiry [Ni, Pearson & Poteshman 2005] {E+}
+│   │   ├── Max pain                — strike where option buyers lose most {P}
+│   │   └── Expiry-day volatility / gamma moves {P}
+│   ├── Dealer positioning
+│   │   └── Gamma exposure (GEX)    — dealer hedging dampens or amplifies moves {P}
+│   ├── Futures data
+│   │   ├── Basis / premium         — futures vs spot; rising premium = bullish positioning
+│   │   └── Rollover % and cost     — conviction to carry positions forward {P}
+│   └── India: participant-wise OI
+│       └── NSE publishes daily OI by Client / DII / FII / Pro — direct read of FII index positioning
+│
+├── 18 INSTITUTIONAL FOOTPRINTS  (trade with investors, not against them)   ⇒ F: FLO gates + volume_moneyflow/
+│   ├── Flows
+│   │   ├── FII / DII cash-market flows — daily, NSE ★
+│   │   ├── FII index futures long/short ratio — from participant OI (see 17)
+│   │   ├── Evidence                — FII flows and Indian returns move together, mainly contemporaneously {E~}
+│   │   └── Your observation        — FII Tuesday selling + put buying ★ (to verify)
+│   ├── Deal data
+│   │   ├── Bulk / block deals      — who bought/sold large size, same-day disclosure
+│   │   └── Insider / promoter trades — SAST/PIT disclosures
+│   ├── Ownership changes
+│   │   ├── Quarterly shareholding pattern — FII/DII/MF % change
+│   │   └── MF monthly portfolios   — what funds added/cut
+│   ├── Execution footprints
+│   │   ├── VWAP/TWAP execution     — institutions work orders across the day [Berkowitz et al 1988]
+│   │   ├── Repeated absorption at a level — Wyckoff/VSA effort-vs-result (see 11)
+│   │   └── Delivery % spikes       — fresh holding, not intraday churn {P}
+│   └── Event behaviour
+│       └── Post-earnings drift     — price keeps drifting in surprise direction [Ball & Brown 1968; Bernard & Thomas 1989] {E+}
+│
+├── 19 MARKET BREADTH & INTERNALS  (is the whole market moving, or just a few stocks?)   ⇒ F: NEW (breadth/)
+│   ├── Breadth indicators
+│   │   ├── Advance / Decline line and ratio
+│   │   ├── McClellan Oscillator / Summation Index [McClellan 1969] {P}
+│   │   ├── % of stocks above 20/50/200 EMA — participation in the trend {P}
+│   │   ├── New 52-week highs vs lows
+│   │   └── Breadth thrust          — sudden broad buying starts new bull legs [Zweig 1986] {P}
+│   ├── Heatmap / sector view
+│   │   ├── F&O heatmap — count of ≥1–2% movers red vs green ★ (your log)
+│   │   ├── Sector index breadth    — IT/PSU/Bank all red = sector sell-off ★ (your log)
+│   │   └── Rising correlations in falling markets — stocks follow index more in sell-offs [Longin & Solnik 2001; Ang & Chen 2002] {E+}
+│   │                                 (academic support for your "F&O stocks follow Nifty" note)
+│   ├── Relative strength
+│   │   ├── Stock vs Nifty ratio line — leaders vs laggards
+│   │   ├── RS rating (percentile)  — [O'Neil 1988]
+│   │   └── Relative Rotation Graph (RRG) — leading/weakening/lagging/improving quadrants [de Kempenaer] {P}
+│   └── Sector rotation
+│       └── Money moving between sectors through the cycle [Murphy 2004]
+│
+├── 20 INTERMARKET & MACRO TRIGGERS  (outside forces on Nifty)   ⇒ F: MAC / PRE gates
+│   ├── Intermarket framework       — stocks, bonds, commodities, currencies move together [Murphy 2004]
+│   ├── India-relevant inputs
+│   │   ├── USD/INR                 — rupee weakness → FII outflow pressure
+│   │   ├── Brent crude             — India's largest macro sensitivity
+│   │   ├── US 10Y yield / DXY      — risk-on/off for emerging markets
+│   │   ├── US index futures + Asian markets — overnight sentiment
+│   │   └── GIFT Nifty              — leads Nifty open (offshore futures price discovery)
+│   ├── Volatility regime
+│   │   ├── India VIX level & change
+│   │   └── US VIX spikes           — global risk-off spills into India
+│   └── Event risk
+│       └── RBI policy, US Fed, CPI, Budget, elections — mark days, widen stops / cut size
+│
+├── 21 CALENDAR & EVENT EFFECTS  (when matters as much as where)   ⇒ F: PRE gates
+│   ├── Calendar anomalies
+│   │   ├── Day-of-week effect      — weaker over time [French 1980] {E~}
+│   │   ├── Turn-of-month effect    — returns concentrate last day + first 3 days [Ariel 1987; Lakonishok & Smidt 1988] {E+}
+│   │   ├── Pre-holiday effect      — strong returns before holidays [Ariel 1990] {E~}
+│   │   └── Seasonality almanac     — [Hirsch, Stock Trader's Almanac] {P}
+│   ├── India-specific
+│   │   ├── Weekly expiry day       — your Tuesday correction-day heuristic ★ (to verify)
+│   │   ├── Monthly expiry / rollover week
+│   │   ├── Union Budget day, RBI policy day — volatility events
+│   │   ├── Results season          — stock-specific gaps
+│   │   └── Muhurat / special sessions — thin, treat as short days ★
+│   └── Fortuna takeaway
+│       └── Calendar effects = context labels, never standalone signals
+│
+├── 22 MARKET REGIMES  (trending, ranging, or volatile? — pick the right toolset)   ⇒ F: combination layer
+│   ├── Why it matters
+│   │   └── Trend tools fail in ranges, oscillators fail in trends [Kaufman 2019; Grimes 2012]
+│   ├── Regime detectors
+│   │   ├── ADX level               — trending vs not [Wilder 1978]
+│   │   ├── Efficiency Ratio        — net move / total path, 0–1 [Kaufman 2019]
+│   │   ├── Choppiness Index        — 0–100, high = range [Dreiss] {P}
+│   │   ├── Hurst exponent          — >0.5 trending, <0.5 mean-reverting
+│   │   ├── Volatility regime       — ATR/VIX percentile bands
+│   │   └── Structure-based         — HH/HL vs overlapping swings (reuses ★ structure labels)
+│   ├── Statistical models
+│   │   ├── Regime-switching models — markets alternate between hidden states [Hamilton 1989] {E+}
+│   │   └── Hidden Markov Models    — probabilistic regime labels
+│   └── Output
+│       └── Regime label feeds which indicators get weight in the combination (see 27)
+│
+├── 23 SWING STOCK SELECTION  (Fortuna Cash: which stocks to buy)   ⇒ F: Fortuna Cash ranking
+│   ├── Momentum & strength
+│   │   ├── 3–12 month momentum     — winners keep winning [Jegadeesh & Titman 1993] {E+}
+│   │   ├── Near 52-week high       — strong predictor of continuation [George & Hwang 2004] {E+}
+│   │   ├── India momentum          — momentum effect also documented in Indian stocks {E+}
+│   │   └── Relative strength vs Nifty — stocks NOT following the index ★ (your log)
+│   ├── Trend templates
+│   │   ├── Minervini Trend Template — price > 50 > 150 > 200 MA, 200 MA rising, near highs [Minervini 2013] {P}
+│   │   ├── Stage 2 only            — buy above rising 30-week MA [Weinstein 1988] {P}
+│   │   └── CAN SLIM                — earnings + leadership + market direction [O'Neil 1988] {P}
+│   ├── Setups
+│   │   ├── VCP / tight base breakout [Minervini 2013] {P}
+│   │   ├── Pullback to rising EMA in Stage 2
+│   │   ├── Darvas box breakout     — [Darvas 1960] {P}
+│   │   └── Post-earnings gap-up with volume (PEAD, see 18) {E+}
+│   └── Risk filters
+│       ├── Low-volatility stocks earn better risk-adjusted returns [Baker, Bradley & Wurgler 2011] {E+}
+│       ├── Liquidity filter (Amihud / traded value)
+│       └── ASM/GSM surveillance flag, pledge %, upcoming results date
+│
+├── 24 OPTIONS BUYING SPECIFICS  (Fortuna Index / Cash Options)   ⇒ F: options module
+│   ├── Core references
+│   │   ├── Option Volatility and Pricing — the options trader's bible [Natenberg 2015]
+│   │   ├── Options as a Strategic Investment [McMillan 2012]
+│   │   └── Volatility Trading      — measuring and trading vol [Sinclair 2013]
+│   ├── The structural headwind
+│   │   ├── Variance risk premium   — implied vol is usually above later realised vol, so buyers overpay on average [Carr & Wu 2009] {E+}
+│   │   ├── SEBI F&O studies        — ~9 in 10 individual traders lose money [SEBI 2023, 2024] {E+}
+│   │   └── Fortuna takeaway        — buy only when expected move > what the premium prices in
+│   ├── Greeks for buyers
+│   │   ├── Delta choice            — ATM/slightly ITM (~0.5–0.6) for directional moves {P}
+│   │   ├── Theta                   — decay accelerates near expiry; time your holding period
+│   │   ├── Gamma                   — biggest near expiry ATM: fast gains AND fast losses
+│   │   └── Vega / IV crush         — premiums drop after events (results, budget) even if right on direction
+│   ├── Expected move
+│   │   └── Straddle price ≈ market's expected move to expiry — compare with your S/R targets
+│   ├── Option chart vs underlying
+│   │   └── Option levels mirror Nifty's S/R; re-enter at option VWAP ★
+│   └── Trade timing
+│       └── Strong trend days (wide range, close near extreme) pay buyers; range days pay sellers
+│
+├── 25 ENTRIES, EXITS & TRADE MANAGEMENT  (turning analysis into a trade)   ⇒ F: Buy / Exit tabs
+│   ├── Entry types
+│   │   ├── Breakout                — enter on break, stop below level
+│   │   ├── Break-and-retest        — wait for retest of broken level (your double-top rule) ★
+│   │   ├── Pullback in trend       — buy HL at EMA / S/R [Grimes 2012]
+│   │   ├── Failed breakout / reversal — "Turtle Soup" fade of false breaks [Connors & Raschke 1995] {P}
+│   │   └── Confirmation candle     — wait for close in your direction at the level
+│   ├── Stop placement
+│   │   ├── Structure stop          — beyond the swing that proves you wrong
+│   │   ├── ATR stop                — N × ATR from entry, adapts to volatility
+│   │   └── Time stop               — exit if move doesn't happen in N bars (vital for options)
+│   ├── Targets & exits
+│   │   ├── Next S/R level (R1/R2/R3) ★
+│   │   ├── R-multiple targets      — 1R / 2R / 3R [Tharp 1998]
+│   │   ├── Partial booking         — scale out at levels ★ (first booking at RSI 45–55 / R1)
+│   │   └── Trailing                — swing-low trail, EMA trail, ATR (Chandelier) trail [Le Beau]
+│   └── Trade management rules
+│       ├── Move to breakeven only after structure confirms (not too early)
+│       └── Exit on opposite CHoCH on the trading timeframe
+│
+├── 26 RISK & POSITION SIZING  (survive first)   ⇒ F: Positions tab / risk engine
+│   ├── Sizing methods
+│   │   ├── Fixed fractional (1–2% risk per trade) [Tharp 1998]
+│   │   ├── Kelly criterion         — optimal growth fraction; use half-Kelly or less [Kelly 1956; Thorp]
+│   │   ├── Optimal f               — [Vince 1990]
+│   │   └── Volatility targeting    — size inversely to volatility improves risk-adjusted returns [Moreira & Muir 2017] {E+}
+│   ├── Measures
+│   │   ├── Expectancy              — win% × avg win − loss% × avg loss [Tharp 1998]
+│   │   ├── R-multiple distribution — the profile of your system's outcomes
+│   │   ├── Max drawdown, Sharpe, Sortino, profit factor
+│   │   └── Risk of ruin            — chance of losing X% given win rate and size
+│   └── Limits
+│       ├── Daily loss limit / max trades per day
+│       ├── Correlated exposure     — many F&O stocks = one Nifty bet (see 19)
+│       └── Event-day size cuts     — (see 20, 21)
+│
+├── 27 SIGNAL COMBINATION & PROBABILITY  (one view of where price stands)   ⇒ F: combination layer
+│   ├── Confluence principles
+│   │   ├── Use different TYPES of evidence — trend + momentum + structure + volume + flows (avoid 5 versions of the same thing) [Murphy 1999]
+│   │   ├── Weight of evidence      — the market-technician's approach [Pring 2014]
+│   │   └── Regime-dependent weights — trend signals weigh more in trend regimes (see 22)
+│   ├── Scoring approaches
+│   │   ├── Rule-based scorecard    — each indicator votes ±1, weighted sum
+│   │   ├── Logistic regression     — converts signals into a probability of up/down
+│   │   ├── Bayesian updating       — each new signal shifts the probability
+│   │   └── Tree models / gradient boosting — learns interactions between indicators [López de Prado 2018]
+│   ├── Meta-labeling
+│   │   └── Primary rule says direction; a second model decides whether to take it and how big [López de Prado 2018] {E~}
+│   ├── Output design ★
+│   │   ├── Plain-language text of "where it stands / what's likely next"
+│   │   └── All labels kept, including low-weight ones
+│   └── Explainability
+│       └── Show which signals drove the score (so you can check it against your chart)
+│
+├── 28 LABELING, BACKTESTING & VALIDATION  (prove it before trusting it)   ⇒ F: backtest module
+│   ├── Labeling outcomes  (relevant to your "good swing buy" reverse-engineering)
+│   │   ├── Fixed-horizon return label — simple but ignores the path
+│   │   ├── Triple-barrier method   — label by which hits first: profit target, stop, or time limit [López de Prado 2018]
+│   │   └── Trend-scanning labels   — label by the strongest trend that follows [López de Prado 2020]
+│   ├── Testing methods
+│   │   ├── In-sample / out-of-sample split
+│   │   ├── Walk-forward analysis   — re-optimise on rolling windows, test on the next [Pardo 2008]
+│   │   ├── Purged / embargoed cross-validation — avoids leakage in overlapping labels [López de Prado 2018]
+│   │   └── Monte Carlo trade reshuffling — range of possible drawdowns
+│   ├── Overfitting defences
+│   │   ├── Probability of backtest overfitting [Bailey, Borwein, López de Prado & Zhu 2017] {E+}
+│   │   ├── Deflated Sharpe ratio   — adjusts for how many variants you tried [Bailey & López de Prado 2014]
+│   │   ├── Higher bar for significance (t > 3) when testing many rules [Harvey, Liu & Zhu 2016] {E+}
+│   │   └── Data-snooping test      — White's Reality Check [Sullivan, Timmermann & White 1999]
+│   ├── Realism
+│   │   ├── Costs: brokerage, STT, slippage, bid-ask on options
+│   │   ├── Fill assumptions        — no fills at exact high/low
+│   │   └── Point-in-time universe  — F&O list as it was on each date
+│   └── General references
+│       ├── Trading Systems and Methods — encyclopedia of systems [Kaufman 2019]
+│       ├── Quantitative Trading / Algorithmic Trading [Chan 2008, 2013]
+│       └── Evidence-Based Technical Analysis [Aronson 2006]
+│
+├── 29 PREDICTION TRACKING & CALIBRATION  (the Predictor indicator)   ⇒ F: predictor module
+│   ├── Recording forecasts
+│   │   └── Daily direction + probability + horizon, stored before the outcome
+│   ├── Scoring
+│   │   ├── Brier score             — accuracy of probability forecasts [Brier 1950]
+│   │   ├── Calibration curve       — do your "70%" calls happen 70% of the time?
+│   │   └── Hit rate by regime / timeframe / setup
+│   ├── Learning loop
+│   │   └── Good forecasters update in small steps and track records [Tetlock & Gardner 2015]
+│   └── Your daily chart analysis ★
+│       └── Manual predictions become the human baseline to beat
+│
+└── 30 TRADER PSYCHOLOGY & EXECUTION  (the rules you follow when it's live)
+    ├── Biases that hit traders
+    │   ├── Disposition effect      — sell winners early, hold losers [Shefrin & Statman 1985; Odean 1998] {E+}
+    │   ├── Overtrading             — more trading, lower returns [Barber & Odean 2000] {E+}
+    │   └── Loss aversion           — [Kahneman & Tversky 1979] {E+}
+    ├── Mindset
+    │   ├── Think in probabilities  — any single trade is random, edge shows over many [Douglas 2000]
+    │   └── Self-coaching & routines [Steenbarger 2003]
+    ├── Process
+    │   ├── Pre-market plan, checklist from Fortuna's view
+    │   ├── Trade journal tied to Fortuna labels
+    │   └── Weekly review — rules followed vs broken
+    └── Interviews with top traders
+        └── How professionals actually operate [Schwager 1989]
+
+
+================================================================================
+  YOUR IDEAS → THE SOURCES BEHIND THEM
+--------------------------------------------------------------------------------
+  RSI ~55 acts as support in bull phases, resistance in bear phases
+    → Constance Brown, Technical Analysis for the Trading Professional (1999)
+      RSI holds roughly 40–80 in bull trends and 20–60 in bear trends,
+      so the 40–60 zone flips between support and resistance.   (see 09)
+
+  F&O stocks follow Nifty's trend, especially when it is falling
+    → Longin & Solnik (2001); Ang & Chen (2002)
+      Stocks move more closely together in falling markets than in
+      rising ones.                                               (see 19)
+
+  Reverse-engineering "good swing buys" (labeling step)
+    → López de Prado, Advances in Financial Machine Learning (2018)
+      Triple-barrier labeling: a trade is labeled by whichever is hit
+      first — profit target, stop-loss, or time limit.           (see 28)
+
+================================================================================
+  CORE LIBRARY  (read in roughly this order)
+--------------------------------------------------------------------------------
+  CLASSICAL TECHNICAL ANALYSIS
+    Edwards & Magee — Technical Analysis of Stock Trends (1948; later eds.)
+    John J. Murphy  — Technical Analysis of the Financial Markets (1999)
+    Martin Pring    — Technical Analysis Explained (5th ed. 2014)
+    Steve Nison     — Japanese Candlestick Charting Techniques (1991)
+    Thomas Bulkowski— Encyclopedia of Chart Patterns (3rd ed. 2021)
+
+  INDICATORS
+    J. Welles Wilder— New Concepts in Technical Trading Systems (1978)  RSI, ATR, ADX, SAR
+    Gerald Appel    — Technical Analysis: Power Tools for Active Investors (2005)  MACD
+    Chande & Kroll  — The New Technical Trader (1994)  Stoch RSI
+    Constance Brown — Technical Analysis for the Trading Professional (1999)  RSI ranges, hidden divergence
+    John Bollinger  — Bollinger on Bollinger Bands (2001)
+    Alexander Elder — Trading for a Living (1993) / The New Trading for a Living (2014)
+
+  PRICE ACTION, STRUCTURE & AUCTION
+    Al Brooks       — Trading Price Action: Trends / Ranges / Reversals (2011–12)
+    Adam Grimes     — The Art and Science of Technical Analysis (2012)
+    Henry Pruden    — The Three Skills of Top Trading (2007)  Wyckoff
+    David Weis      — Trades About to Happen (2013)  Wyckoff / volume
+    James Dalton    — Mind Over Markets (1990) / Markets in Profile (2007)
+    Frank Ochoa     — Secrets of a Pivot Boss (2010)  CPR
+    Toby Crabel     — Day Trading with Short Term Price Patterns and Opening Range Breakout (1990)
+
+  LIQUIDITY & MICROSTRUCTURE
+    Larry Harris    — Trading and Exchanges (2003)
+    Maureen O'Hara  — Market Microstructure Theory (1995)
+
+  SWING SELECTION
+    William O'Neil  — How to Make Money in Stocks (1988)
+    Stan Weinstein  — Secrets for Profiting in Bull and Bear Markets (1988)
+    Mark Minervini  — Trade Like a Stock Market Wizard (2013)
+
+  OPTIONS
+    Sheldon Natenberg — Option Volatility and Pricing (2nd ed. 2015)
+    Lawrence McMillan — Options as a Strategic Investment (5th ed. 2012)
+    Euan Sinclair     — Volatility Trading (2nd ed. 2013)
+
+  SYSTEMS, BACKTESTING & ML
+    Perry Kaufman   — Trading Systems and Methods (6th ed. 2019)
+    Robert Pardo    — The Evaluation and Optimization of Trading Strategies (2008)
+    David Aronson   — Evidence-Based Technical Analysis (2006)
+    Ernest Chan     — Quantitative Trading (2008) / Algorithmic Trading (2013)
+    Marcos López de Prado — Advances in Financial Machine Learning (2018)
+
+  RISK & PSYCHOLOGY
+    Van K. Tharp    — Trade Your Way to Financial Freedom (1998)
+    Mark Douglas    — Trading in the Zone (2000)
+    Brett Steenbarger — The Psychology of Trading (2003)
+    Jack Schwager   — Market Wizards (1989)
+
+  KEY STUDIES  (papers worth reading in full)
+    Brock, Lakonishok & LeBaron (1992)   — MA and range-break rules on DJIA
+    Sullivan, Timmermann & White (1999)  — data-snooping test of those rules
+    Jegadeesh & Titman (1993)            — momentum
+    Moskowitz, Ooi & Pedersen (2012)     — time-series momentum
+    George & Hwang (2004)                — 52-week high
+    Lo, Mamaysky & Wang (2000)           — chart patterns by algorithm
+    Osler (2000, 2003)                   — support/resistance, stop clustering
+    Gao, Han, Li & Zhou (2018)           — intraday momentum
+    Pan & Poteshman (2006)               — option volume predicts stock returns
+    Ni, Pearson & Poteshman (2005)       — pinning on expiry
+    Carr & Wu (2009)                     — variance risk premium
+    Bailey, Borwein, López de Prado & Zhu (2017) — backtest overfitting
+    Harvey, Liu & Zhu (2016)             — multiple-testing hurdle
+    SEBI F&O studies (2023, 2024)        — retail F&O outcomes in India
+
+================================================================================
+  END. Edit freely in Notepad++ / any text editor. 30 domains total.
+  Citations are from the standard literature; check the edition/year when
+  you buy or read a book.
+================================================================================
