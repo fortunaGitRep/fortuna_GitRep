@@ -1,6 +1,6 @@
 # SUPPORT_RESISTANCE — Fortuna Indicator Spec
 
-**Status:** v1 (2026-10-18). Type 1 (horizontal S&R) built and checked against Ash's drawings on tv.dhan.co. Types 2 onward not started.
+**Status:** v1.1 (2026-10-19). Type 1 (horizontal S&R) built and checked against Ash's drawings on tv.dhan.co. Type 2 (EMA S&R) studied on Nifty history: EMAs are **not** S&R on Nifty → built instead as the EMA break watch (`EMA_BREAK.md`). Type 3 (trendlines) next.
 **Folder:** `backend/modules/Module_F_Tech_Indicators_Funnel/price_action/<type>/` (one subfolder per S&R type, reusing `price_action/swing_points/`, per the Indicators Runbook §10). Horizontal S&R: `price_action/horizontal_sr/`
 **Timeframes:** 1M / 1W / 1D / 60m / 15m / 5m
 **Scope:** Nifty 50 first, then watchlist stocks
@@ -16,7 +16,7 @@ For S&R there is no TradingView indicator to match. Ash draws his own lines, so 
 | 1 | Horizontal levels (static) | Lines through past swing highs / lows | **Built 2026-10-18** (`price_action/horizontal_sr/`, §4) |
 | 2 | Trendlines | Sloping lines through rising lows / falling highs | **Sequence 3** |
 | 3 | Channels and fan principle | A parallel line to a trendline; the fan of steeper lines from one major low (Murphy) | Study later. Builds on trendlines |
-| 4 | Moving averages (dynamic S&R) | Price finding support/resistance at an MA | **Sequence 2 (EMA S&R)**. EMAs already built |
+| 4 | Moving averages (dynamic S&R) | Price finding support/resistance at an MA | **Studied 2026-10-19 (§5): not S&R on Nifty.** Built as the EMA break watch (`EMA_BREAK.md`), not as S&R lines |
 | 5 | Round numbers (psychological) | e.g. Nifty 24,000 / 24,500 / 25,000 | Study later |
 | 6 | Pivot points (incl. CPR) | Levels computed from the prior period's H/L/C | Study later. CPR exists in Foundation Funnel PRE-4 |
 | 7 | Prior period levels | Previous day / week / month high, low | **Part of #1 Horizontal:** previous day O/H/L/C are tags (PDO/PDH/PDL/PDC) on lines that match, not separate lines (Ash, 2026-10-18). Previous week / month levels not built |
@@ -34,7 +34,7 @@ For S&R there is no TradingView indicator to match. Ash draws his own lines, so 
 ## 2. Build sequence (Ash, 2026-10-18)
 
 1. Horizontal S&R (previous day O/H/L/C as tags on matching lines)
-2. EMA S&R
+2. EMA S&R — studied 2026-10-19: not S&R on Nifty; became the EMA break watch (§5)
 3. Trendline S&R
 4. Channels and fan (suggested, since it builds on trendlines)
 5. Round numbers (suggested)
@@ -179,7 +179,83 @@ Logs: `logs\horizontal_sr_test_logs\` — `horizontal_sr_check.log`, `horizontal
 
 ---
 
-## 5. Type 2 — EMA S&R (not started)
+## 5. Type 2 — EMA S&R (studied 2026-10-19: not S&R on Nifty → EMA break watch)
+
+### 5.1 Research: books
+- **Books teach moving averages as S&R.** Granville's moving-average rules (1960) include buying a dip toward a rising average; Murphy covers MAs as support in uptrends; StockCharts teaches the 50- and 200-day (SMA) as S&R in an uptrend with the 50 above the 200 and both rising ([StockCharts](https://chartschool.stockcharts.com/table-of-contents/trading-strategies-and-models/trading-strategies/moving-average-trading-strategies/finding-support-and-resistance-in-moving-averages)).
+- **Intraday:** Al Brooks trades around the 20-bar EMA on every chart; his followers describe the "20 gap bar" (first touch after ~20 bars on one side) and report he plots the 1h 20 EMA on the 5m chart — second-hand forum reports, not his words ([Brooks forum](https://www.brookstradingcourse.com/support-forum/general-trading-discussion/20-gap-bar-buy-and-ema-gap-bar-buy/)). Raschke's "Holy Grail": pullback to the 20-period average when ADX > 30 and rising (daily examples, SMA) ([Trading Setups Review](https://tradingsetupsreview.com/the-holy-grail-trading-setup)). A practitioner on the Brooks forum: where the 20 EMA holds there is almost always other S&R there (confluence).
+- **Why it is a topic at all:** everyone watches the same lines (50 / 200 DMA in every broker app and news story, e.g. "Nifty faces resistance near 200 DMA"), institutions use the 200-day as a benchmark, and an MA is the recent average price.
+
+### 5.2 Research: studies
+- **Kavajecz & Odders-White (2004, Review of Financial Studies):** S&R levels sit where limit-order-book depth peaks, and moving-average signals reveal where that depth sits — the only study tying MAs to real orders ([RePEc](https://ideas.repec.org/a/oup/rfinst/v17y2004i4p1043-1071.html)).
+- **Grimes (200-day):** S&P / DJIA returns above vs below the 200-day differ weakly, not significantly, and not at all in the last decade ([Grimes](https://www.adamhgrimes.com/200-day-moving-average-work/)).
+- **No published study measures how often price bounces at an EMA**, which EMA, or which timeframe (unlike horizontal levels). An NQ 5m EMA backtest found online is a cross test, not a bounce test ([Astreka](https://www.astreka.com/market-insights/best-ema-for-futures-trading-5-minute-nq-ema-backtest)).
+
+### 5.3 Ash's observations
+- Uses EMAs on the daily only; his 60m / 15m / 5m charts carry no EMAs (screenshots 2026-10-18).
+- Logged on Mon 7 Sep 2026 that Nifty was rejected at the 200D EMA.
+- Decision (Ash): since the books say it but no study measures it, **test it on Nifty's own history before building anything.**
+
+### 5.4 The study — `studies/ema_sr/` (read-only, Nifty 50, data to Fri 16 Oct 2026)
+
+| | |
+|---|---|
+| Lines | EMA 5 / 13 / 20 / 26 / 50 / 100 / 200 (Ash's six + the books' 20) on each timeframe's own candles; daily EMAs on 60m / 15m / 5m candles (each intraday candle uses the previous day's daily EMA) |
+| Data | 1M 322 · 1W 1,399 · 1D 6,662 candles (3 Jan 2000 – 16 Oct 2026); 60m 8,284 · 15m 29,580 · 5m 88,824 candles (3 Jan 2022 – 16 Oct 2026) |
+| Touch episode (Ash: "how many touches does it take") | armed by a candle fully clear of the line; starts at the first wick touch (or, close mode, a close within X); counts every touching candle; ends at the first **close beyond** the line (break) or a close at least X away on the original side (bounce) |
+| X | average \|close − previous close\| over the last 20 candles (study method, Garzarelli 2014 / Chung & Bellotti 2021; rolling so it follows the price scale and never uses future candles) |
+| Control (Chung & Bellotti method) | the same test on prices rebuilt from the real candles in random order, 20 times; edge = real bounce % − control bounce %; every split is compared with the control in the same split |
+| Conditions | measured on the candle **before** the touch: trend = Ash's EMA stack (support with stage > 0, resistance with stage < 0), stage −5…+5, above / below the 200, era, candles clear before the touch |
+| Recorded per episode | touches, candles, outcome, deciding candle's body %, range vs average, close position, and for a break the candles until price first closed back on the original side |
+
+**Results (wick touch):**
+
+| Timeframe | Edge vs control, all EMAs | Notes |
+|---|---|---|
+| 1D | EMA 13–200: **−3.1 to −6.3 pts**; EMA 5 +3.8 | touches end in a break 70–75% of the time; EMA 13 / 20 / 26 / 50 bounce **below the lowest** of the 20 random runs |
+| 1W | −7.6 to +6.1 (EMA 5–100, 42–263 episodes each) | no consistent edge; EMA 200 only 14 episodes |
+| 1M | — | 0–54 episodes per EMA: too few to read |
+| 60m | −5.2 to +1.5 | nothing |
+| 15m | −1.8 to +0.3 | nothing |
+| 5m | −1.4 to +0.9 | nothing |
+| 5m close mode | **+2.4 to +3.9** for EMA 13 / 20 / 26 / 50 / 100 / 200 (2,454–11,191 episodes each; every one above the control's highest run) | a 5m candle closing near an EMA without crossing bounces slightly more than chance; 15m EMA 200 close +3.7 |
+
+**With trend (pullback in the direction of the EMA stack):** 1D EMA 13–200 **−3.5 to −7.4 pts** (worse than chance); 60m −3.3 to +2.2; 15m −1.7 to +3.2; 5m −1.6 to +0.3. Strongest stack only (+5 / −5): 15m EMA 20 +2.7, EMA 26 +3.3, 5m EMA 26 +2.4; larger figures (5m / 15m EMA 200 at +5: +10 to +12) rest on 19–56 cases.
+
+**Touches (Ash's question), daily EMA 50:** 1st touch — bounce 18%, break 58%, more touches 24%; 2nd — 20% / 56%; 3rd — 23% / 59%; daily episodes rarely go past 3 touches.
+
+**Era, daily EMA 200:** bounce 34.9% in 2000–2012, 19.0% in 2013–2019, 19.5% in 2020–2026 — fading, like Grimes' finding.
+
+**What happens after a break** (5m / 15m / 60m, EMA 50 / 100 / 200, 10,685 breaks): about half close back on the original side within 3 candles (45.5%); 34.4% are still broken after 10 candles. The size of the breaking candle separates them (tall ≥ 2× average: 50.3% still broken / 30.7% back within 3; small < 1×: 24.9% / 56.8%; same on each timeframe and on 2025–26 data not used to choose the cut-off). Body % and close position add only 1–5 pts. Details: `EMA_BREAK.md` §2.
+
+**Study method lessons (apply to every future study):**
+- **Conditions may only use what was known before the touch.** The first run measured the EMA slope on the touch candle; by the EMA formula a candle closing below yesterday's EMA turns the EMA down **and** is already a break, so "against trend" showed exactly 0% bounce. Caught from the log, fixed, tested.
+- **The line's own slope cannot measure trend.** An EMA always rises after a candle that closes above it, so before a support touch it is rising by definition — every episode came out "with trend". Trend must come from something else (here the EMA stack; market-structure trend is the alternative).
+- A random control is essential: on the randomly reordered candles EMAs "bounce" 27–41% of the time too (control column, 1D and intraday).
+
+### 5.5 Decision (Ash, 2026-10-19)
+- **EMAs are not drawn as S&R lines** and do not go on the horizontal S&R ladders.
+- They become the **EMA break watch** (`EMA_BREAK.md`, `trend_indicators/ema_break/`): near alert, break label with the breaking candle's size, odds from history; live on 60m / 15m / 5m for EMA 50 / 100 / 200 only, ⚡ only on a tall-candle break, context lines for 1M / 1W / 1D.
+- Market-structure trend (option b) was not run: every split gave the same answer (overall, side, stack, strongest stack, wick and close, six timeframes, 26 years).
+- The faint intraday signals (5m close near an EMA; stack +5 pullbacks to the 20 / 26 EMA) are kept as findings for the combining stage, not traded alone.
+
+### 5.6 Code map, how to run, tests
+| File | Holds |
+|---|---|
+| `indicator_common/line_reaction_study.py` | `average_move`, `find_episodes`, `touch_table` — the touch-episode engine, shared by the study and the EMA break watch (moved from `studies/` 2026-10-19) |
+| `studies/ema_sr/ema_sr_study.py` | `add_lines`, `daily_lines_on_intraday`, `shuffled_candles`, `episodes_with_conditions`, `rates`, `control_summary`, `split_table`, `run_study` + runner |
+
+```
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.ema_sr.ema_sr_study [--timeframes TF ...] [--shuffles N]
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.ema_sr.test_ema_sr_study
+python -m modules.Module_F_Tech_Indicators_Funnel.indicator_common.test_line_reaction_study
+```
+Outputs in `logs\studies_logs\`: `ema_sr_study_progress.log` (written as it runs, one line per step), `ema_sr_study.log` (summary + per-EMA detail: touch table, splits with control and edge), `ema_sr_episodes.csv` (one row per real episode, ~176,000 rows), `ema_sr_study_unit_tests.log`. The engine's test log: `logs\indicator_common_test_logs\line_reaction_study_unit_tests.log`. Full run 199 s on Ash's machine (2026-10-19).
+
+Tests: `test_line_reaction_study.py` 17 (single / multi-touch bounce, break and reclaim, never reclaimed, side flips, resistance mirror, gap through the line = one-touch break, needs a clear candle, open at the end, NaN line skipped, close mode, candle strength, rolling X with no future data, touch table, input not modified, validation); `test_ema_sr_study.py` 13 (random order keeps the same candles and is repeatable, lines and stage, daily line uses the previous day only, conditions from the candle before the touch, against-trend not a built-in zero, timezone-aware times, control summary and per-split control, progress messages, end-to-end with a fake reader, failed timeframe reported).
+
+---
+
 ## 6. Type 3 — Trendline S&R (not started)
 
 ---
@@ -197,9 +273,17 @@ Logs: `logs\horizontal_sr_test_logs\` — `horizontal_sr_check.log`, `horizontal
 - [LuxAlgo — Support and Resistance Zone indicator](https://www.luxalgo.com/library/indicator/7AndUMz0-support-and-resistance-zone/)
 - Garzarelli et al. 2014, *Memory effects in stock price dynamics: evidences of technical trading*, Scientific Reports 4, 4487 (zone width method, via Chung & Bellotti)
 - Murphy, *Technical Analysis of the Financial Markets*, ch. 4 (support / resistance, role reversal, trendlines, fan principle)
+- [StockCharts — Finding Support and Resistance in Moving Averages](https://chartschool.stockcharts.com/table-of-contents/trading-strategies-and-models/trading-strategies/moving-average-trading-strategies/finding-support-and-resistance-in-moving-averages)
+- [Kavajecz & Odders-White 2004, Technical Analysis and Liquidity Provision, Review of Financial Studies 17(4)](https://ideas.repec.org/a/oup/rfinst/v17y2004i4p1043-1071.html)
+- [Grimes — Does the 200 day moving average "work"?](https://www.adamhgrimes.com/200-day-moving-average-work/)
+- [Brooks Trading Course forum — 20 gap bar buy](https://www.brookstradingcourse.com/support-forum/general-trading-discussion/20-gap-bar-buy-and-ema-gap-bar-buy/)
+- [Trading Setups Review — Raschke's Holy Grail](https://tradingsetupsreview.com/the-holy-grail-trading-setup)
+- [Astreka — 5-minute NQ EMA backtest](https://www.astreka.com/market-insights/best-ema-for-futures-trading-5-minute-nq-ema-backtest)
+- Granville, *A Strategy of Daily Stock Market Timing for Maximum Profit* (1960) — moving-average rules
 
 ---
 
 ## Change log
+- **v1.1 — 2026-10-19.** Type 2 EMA S&R (§5): research, Ash's observations, the Nifty study (`studies/ema_sr/`, shared engine in `indicator_common/line_reaction_study.py`), results, method lessons; decision: EMAs are not S&R on Nifty → EMA break watch (`EMA_BREAK.md`). §1 and §2 updated.
 - **v1 — 2026-10-18.** Horizontal S&R built (`price_action/horizontal_sr/`): every Zig Zag swing a line, recency, rule A merge, never across price, PD lines kept, per-timeframe ladders + trading ladder, check, snapshot, 42 tests; checked against Ash's drawings (§4.7, §4.12). Folder corrected to `price_action/`.
 - **v0.1 — 2026-10-18.** Scope (11 types), build sequence, research for horizontal S&R, Ash's observations, zone research.
