@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑10‑16 (indicator sections brought up to date: shared helpers `indicator_common/` §2.14, RSI §2.15, Stochastic RSI §2.16, market structure `price_action/` §2.17; §5 code map and §6 commands; specs in Fortuna Indicators/). Earlier: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑26 (indicator sections brought up to date after 16 Oct: EMA break watch + studies §2.18, horizontal S&R lines + zones §2.19, trendline manual checks §2.20; §2.17 S&R folder name corrected; §5 code map, specs, logs and §6 commands; tests 508 → 622). Earlier: 2026‑10‑16 (indicator sections brought up to date: shared helpers `indicator_common/` §2.14, RSI §2.15, Stochastic RSI §2.16, market structure `price_action/` §2.17; §5 code map and §6 commands; specs in Fortuna Indicators/). Earlier: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -546,7 +546,7 @@ Outputs: `logs/data_audit.log`, `logs/data_audit_summary.txt` (both overwritten 
 
 **Decisions**
 - **TradingView parity for every indicator:** same formulas and methods as TradingView, so Fortuna's values
-  equal what Ash sees on his charts. EMA = Pine `ta.ema`: blank for bars 1..n‑1, bar n = SMA of the first
+  equal what Ash sees on her charts. EMA = Pine `ta.ema`: blank for bars 1..n‑1, bar n = SMA of the first
   n closes, then `α·close + (1−α)·prev`, α = 2/(n+1).
 - **EMA stack:** 5 > 13 > 26 > 50 > 100 > 200. Crosses to watch: close vs each of the 6 EMAs, stack pairs
   5/13, 13/26, 26/50, 50/100, 100/200, plus the 50/200 golden/death cross. Stage ladder −5..+5
@@ -561,7 +561,9 @@ Outputs: `logs/data_audit.log`, `logs/data_audit_summary.txt` (both overwritten 
   `momentum_oscillators`, `volume_moneyflow`, `volatility_indicators`, `support_resistance_levels`.
   **As built (2026‑10‑16):** `trend_indicators/` (EMA, MACD, ADX), `oscillators/` (RSI, Stochastic RSI — this
   name replaced the planned `momentum_oscillators` on 2026‑10‑13), `price_action/` (market structure) and the
-  shared `indicator_common/`; the other folders come with their indicators.
+  shared `indicator_common/`; the other folders come with their indicators. **Since (2026‑10‑18 → 26):**
+  S&R went into `price_action/` (`horizontal_sr/`, `trendlines/`) instead of `support_resistance_levels/`;
+  `trend_indicators/ema_break/` and `studies/` were added (§2.18–§2.20).
 - **Undocumented files are left untouched:** the old `read_ohlcv.py` is not in this doc or the build log,
   so it stays as is; the indicator reader is a new file.
 
@@ -718,8 +720,62 @@ Full spec: `Dev Documents\Development Docs\Fortuna Indicators\MARKET_STRUCTURE.m
 - **Known:** history rebuilt from the finished Zig Zag misses breaks of a last swing that Zig Zag later moved
   (lookahead test: 10 of 50 cut dates). Today's report is always right; the stored daily snapshots will be the
   live record (open item).
-- **Swing points are shared:** price S&R levels (`support_resistance_levels/`) will import
+- **Swing points are shared:** horizontal S&R (built 2026‑10‑18 as `price_action/horizontal_sr/`, §2.19 — the
+  planned name `support_resistance_levels/` was not used) and the trendline checks import
   `price_action/swing_points/`, never copy it.
+
+### 2.18 Indicator phase — EMA break watch + studies (2026‑10‑19)
+
+Full spec: `Fortuna Indicators\EMA_BREAK.md`; study result `SUPPORT_RESISTANCE.md` §5.
+- **Study first:** `studies/ema_sr/ema_sr_study.py` — does price bounce at an EMA more than at a random line?
+  On Nifty, no → EMAs are **not** S&R. Read‑only research run, not part of the daily routine.
+- **What was built instead:** the EMA break watch on EMA 50 / 100 / 200 — near (within one average candle move,
+  alert on the first near candle), break on a **close** with the breaking candle's size (tall ≥ 2× / normal / small,
+  ⚡ only on tall), odds from history (still broken after 10 candles, back within 3). Live 60m / 15m / 5m, context
+  line 1M / 1W / 1D.
+- **Reads:** the same reader, all six timeframes; nothing stored. Imports `compute_emas` from
+  `trend_indicators/ema/ema.py` (reuse by design) and `indicator_common/line_reaction_study.py` (shared touch
+  episodes: `average_move`, `find_episodes`, `touch_table`).
+- **Built:** `trend_indicators/ema_break/` (`ema_break.py`, `ema_break_snapshot.py`, tests 10 + 9),
+  `studies/ema_sr/` (`ema_sr_study.py`, tests 13), `indicator_common/line_reaction_study.py` (tests 17).
+  Logs → `logs/ema_break_test_logs/`, `logs/studies_logs/`.
+
+### 2.19 Indicator phase — horizontal S&R, `price_action/horizontal_sr/` (2026‑10‑18 → 26)
+
+Full spec: `Fortuna Indicators\SUPPORT_RESISTANCE.md` §4 (lines), §4.13 (zones).
+- **Lines (complete):** every Zig Zag swing is a line (high = candle high, low = candle low) → recency → PD tags
+  (PDO / PDH / PDL / PDC) → close lines merged (rule A by side of price: support keeps the lowest low, resistance
+  the highest high) → numbered R1, R2… above and S1, S2… below the timeframe's close. Per timeframe 1M / 1W / 1D /
+  60m / 15m / 5m, plus the **trading ladder** (all timeframes' lines on the 5m chart, each tagged with its
+  timeframes).
+- **Zones (manual check, stopped 2026‑10‑26 with open items):** `hsr_zones.py` — each swing a zone from the wick
+  to the candle body (depth between the 20‑candle average bar move and half the ATR 14), the same turn on several
+  timeframes counted once, overlapping zones merged (touches), a **wick** through the far edge = break.
+  Ash's review: too many zones and zones chaining into wide ones → open items, `SUPPORT_RESISTANCE.md` §4.13.
+- **Reads:** `find_zigzag_swings` + `zigzag_settings` (§2.17); candles via `read_for_indicators`; nothing stored.
+- **Built:** `horizontal_sr.py` (pure), `horizontal_sr_check.py`, `horizontal_sr_snapshot.py` (never raises,
+  `--json`), tests 38 + 9; `hsr_zones.py` (pure), `hsr_zones_check.py` (7 days of 5m, each day's zones known at
+  09:15), tests 18. 65 tests. Logs + charts → `logs/horizontal_sr_test_logs/`.
+
+### 2.20 Indicator phase — trendlines, `price_action/trendlines/` (manual checks, 2026‑10‑20 → 26)
+
+Full spec: `Fortuna Indicators\TRENDLINES.md` (split out of `SUPPORT_RESISTANCE.md` on 2026‑10‑26). Not a module
+yet: read‑only checks that draw charts for Ash to compare with her own drawings on tv.dhan.co.
+- **Chain check (`trendline_check.py`, 2026‑10‑20 → 23):** Ash's line 1 / 2 / 3 + vertical on 5m, entries,
+  after the break, draft exits (on hold for options data). Right on her 19 Oct chart, but on only 1 of 10 days →
+  drawing redone.
+- **Drawing Ash's way (`trendline_draw.py`, 2026‑10‑23 → 26):** on 1M / 1W / 1D / 1h / 15m / 5m, lines = the
+  outline of the wicks from the look‑back's extreme; a wick crossing a line = break; the more recent extreme sets
+  the trend; 5m trades follow the 1h trend. Look‑back 1M / 1W 20 years, 1D 1 year, 1h / 15m 10 trading days, 5m 7
+  trading days. Only candles finished at the cut‑off are used (`candles_at`, no future data). Zig Zag and
+  horizontal S&R from the Zig Zag points on each chart. Charts: one per timeframe, all timeframes on the 5m chart,
+  and 5m with zones (each day's zones known at 09:15).
+- **All timeframes on one chart (`trendline_confluence.py`, 2026‑10‑26):** at the last candle every timeframe's
+  lines become prices; lines of 2+ timeframes within 0.1% = a zone with a strength (1M 6, 1W 5, 1D 4, 1h 3,
+  15m 2, 5m 1). 5m look‑back 3 trading days here.
+- **Reads:** the same reader, all six timeframes; imports `price_action/swing_points/` and
+  `price_action/horizontal_sr/`; nothing stored. No unit tests yet (they come with the module). Logs + charts →
+  `logs/trendline_test_logs/`.
 
 ---
 
@@ -1062,8 +1118,20 @@ be re‑fetched later).
 | `price_action/market_structure/swing_labels.py`, `level_breaks.py`, `structure_events.py` | HH/HL/LH/LL/EQH/EQL; break / retest / held / failed cycles; BOS / CHoCH + trend (§2.17) |
 | `price_action/market_structure/market_structure_snapshot.py` | `build_market_structure_snapshot()` — per‑view package + texts + alerts + summary line, never raises (§2.17) |
 | `price_action/…/test_*.py` | 18 + 6 + 4 (swing_points) + 9 + 17 + 12 + 12 (market_structure) = 78 unit tests (§2.17) |
+| `trend_indicators/ema_break/ema_break.py` | `size_tier()`, `history_odds()`, `analyze_line()`, `line_texts()` — EMA 50 / 100 / 200 near / break / odds (§2.18) |
+| `trend_indicators/ema_break/ema_break_snapshot.py` | `live_view()`, `context_view()`, `summary_line()`, `build_ema_break_snapshot()` — never raises, `--json` (§2.18) |
+| `trend_indicators/ema_break/test_ema_break.py`, `test_ema_break_snapshot.py` | 10 + 9 unit tests (§2.18) |
+| `indicator_common/line_reaction_study.py` | `average_move()`, `find_episodes()`, `touch_table()` — touch episodes on any line; 17 tests (§2.18) |
+| `studies/ema_sr/ema_sr_study.py` | read‑only study: EMA bounce vs random line; 13 tests (§2.18) |
+| `price_action/horizontal_sr/horizontal_sr.py` | `swing_lines()`, `recent_since()`, `keep_recent()`, `pd_tags()`, `merge_close_lines()`, `number_lines()`, `timeframe_lines()`, `horizontal_sr()`, `trading_ladder()` — pure (§2.19) |
+| `price_action/horizontal_sr/horizontal_sr_check.py`, `horizontal_sr_snapshot.py` | manual check (every timeframe + trading ladder); `build_horizontal_sr_snapshot()` never raises (§2.19) |
+| `price_action/horizontal_sr/hsr_zones.py`, `hsr_zones_check.py` | zones: `depth_limits()`, `swing_zones()`, `same_turns()`, `merge_zones()`, `zone_breaks()`, `number_zones()`, `hsr_zones()`; 7‑day 5m check + chart (§2.19, stopped with open items) |
+| `price_action/horizontal_sr/test_*.py` | 38 + 9 + 18 = 65 unit tests (§2.19) |
+| `price_action/trendlines/trendline_check.py` | manual check: Ash's chain (line 1 / 2 / 3 + vertical) on 5m, entries, draft exits (§2.20) |
+| `price_action/trendlines/trendline_draw.py` | manual check: Ash's drawing on every timeframe — `candles_at()`, `window()`, `draw_side()`, `trend_of()`, `hsr_for()`, `zigzag_of()`, `chart_html()`, `zone_bands()`; charts per timeframe + combined + 5m zones (§2.20) |
+| `price_action/trendlines/trendline_confluence.py` | manual check: all timeframes' lines at the last candle → zones with strength (§2.20) |
 
-Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md` (+ the market structure build plan); hands‑on manual `Fortuna-Indicators-Runbook.md`.
+Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md` (+ the market structure build plan), `EMA_BREAK.md`, `SUPPORT_RESISTANCE.md`, `TRENDLINES.md`; hands‑on manual `Fortuna-Indicators-Runbook.md`.
 
 Logs (under `backend/logs/`, git‑ignored by `*.log`), overwritten each run, first line = the command:
 MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_<timeframe>_<state|crosses|turns|events>.log`, `macd_snapshot.log`, `test_macd.log`); EMA → `logs/ema_test_logs/`
@@ -1071,8 +1139,10 @@ MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_<time
 `adx_check_all.log`, `adx_snapshot.log`, `test_adx.log`); RSI → `logs/rsi_test_logs/`; Stochastic RSI →
 `logs/stoch_rsi_test_logs/`; shared helpers → `logs/indicator_common_test_logs/`; market structure →
 `logs/zigzag_test_logs/` (`zigzag_check.log`, swing test logs) and `logs/market_structure_test_logs/`
-(`market_structure_snapshot.log`, one log per test file). Full list: runbook §9. The reader's own check still prints to screen only.
-Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14, `ADX.md` §9, `RSI.md` §9, `STOCH_RSI.md` §9, `MARKET_STRUCTURE.md` §8–9).
+(`market_structure_snapshot.log`, one log per test file); EMA break → `logs/ema_break_test_logs/`; studies →
+`logs/studies_logs/`; horizontal S&R → `logs/horizontal_sr_test_logs/`; trendlines → `logs/trendline_test_logs/`
+(logs + HTML charts). Full list: runbook §9. The reader's own check still prints to screen only.
+Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14, `ADX.md` §9, `RSI.md` §9, `STOCH_RSI.md` §9, `MARKET_STRUCTURE.md` §8–9, `EMA_BREAK.md`, `SUPPORT_RESISTANCE.md` §4.11 / §4.13, `TRENDLINES.md` §10–11).
 
 ### Supabase tables
 | Table | Contents |
@@ -1154,7 +1224,22 @@ python -m modules.Module_F_Tech_Indicators_Funnel.oscillators.stoch_rsi.stoch_rs
 python -m modules.Module_F_Tech_Indicators_Funnel.price_action.swing_points.zigzag_check [--timeframe ...] [--show N] [--events N]
 python -m modules.Module_F_Tech_Indicators_Funnel.price_action.market_structure.market_structure_snapshot [--timeframes ...] [--directions both|above] [--no-provisional] [--json]
 
-# All indicator tests (expect 508 passed)
+# EMA break watch + studies (§2.18) — read-only; logs/ema_break_test_logs/, logs/studies_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.trend_indicators.ema_break.ema_break_snapshot [--key KEY] [--name NAME] [--daily-domain indices|universe] [--json]
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.ema_sr.ema_sr_study [--timeframes 1d 5m ...] [--shuffles N]
+
+# Horizontal S&R (§2.19) — read-only; logs/horizontal_sr_test_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.horizontal_sr_check [--timeframe ...] [--show N]
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.horizontal_sr_snapshot [--key KEY] [--name NAME] [--daily-domain indices|universe] [--json]
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.hsr_zones_check [--date YYYY-MM-DD] [--at HH:MM]
+
+# Trendlines (§2.20) — read-only manual checks; logs/trendline_test_logs/
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.trendlines.trendline_check [--date YYYY-MM-DD] [--at HH:MM ...] [--side down|up|both]
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.trendlines.trendline_draw [--date YYYY-MM-DD] [--at HH:MM] [--show-live]
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.trendlines.trendline_confluence [--date YYYY-MM-DD] [--at HH:MM]
+
+# All indicator tests (expect 622 passed: EMA 63 + MACD 66 + ADX 61 + EMA break 19 + indicator_common 74 + RSI 86
+#   + Stochastic RSI 97 + price_action 143 + studies 13; runbook §4.11)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel -v
 ```
 

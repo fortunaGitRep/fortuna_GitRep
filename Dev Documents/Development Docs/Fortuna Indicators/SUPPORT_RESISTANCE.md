@@ -1,11 +1,11 @@
 # SUPPORT_RESISTANCE — Fortuna Indicator Spec
 
-**Status:** v1.1 (2026-10-19). Type 1 (horizontal S&R) built and checked against Ash's drawings on tv.dhan.co. Type 2 (EMA S&R) studied on Nifty history: EMAs are **not** S&R on Nifty → built instead as the EMA break watch (`EMA_BREAK.md`). Type 3 (trendlines) next.
+**Status:** v1.3 (2026-10-26). Type 1 (horizontal S&R lines) built and checked against Ash's drawings on tv.dhan.co; rule A by side of price (2026-10-23). **Horizontal S&R zones** built as a separate layer (`hsr_zones.py`, books + studies) and checked on 7 days of 5m; **stopped with open items** (§4.13). Type 2 (EMA S&R) studied on Nifty history: EMAs are **not** S&R on Nifty → built instead as the EMA break watch (`EMA_BREAK.md`). Type 3 (trendlines): own document **`TRENDLINES.md`** (split out 2026-10-26). Open questions on zones in §4.13.
 **Folder:** `backend/modules/Module_F_Tech_Indicators_Funnel/price_action/<type>/` (one subfolder per S&R type, reusing `price_action/swing_points/`, per the Indicators Runbook §10). Horizontal S&R: `price_action/horizontal_sr/`
 **Timeframes:** 1M / 1W / 1D / 60m / 15m / 5m
 **Scope:** Nifty 50 first, then watchlist stocks
 **Fortuna principle:** TradingView parity + investor mentality + India-market findings, else TradingView default.
-For S&R there is no TradingView indicator to match. Ash draws his own lines, so **his drawn lines on tv.dhan are the parity reference.**
+For S&R there is no TradingView indicator to match. Ash draws her own lines, so **her drawn lines on tv.dhan are the parity reference.**
 
 ---
 
@@ -13,8 +13,8 @@ For S&R there is no TradingView indicator to match. Ash draws his own lines, so 
 
 | # | Type | What it is | Status in Fortuna |
 |---|---|---|---|
-| 1 | Horizontal levels (static) | Lines through past swing highs / lows | **Built 2026-10-18** (`price_action/horizontal_sr/`, §4) |
-| 2 | Trendlines | Sloping lines through rising lows / falling highs | **Sequence 3** |
+| 1 | Horizontal levels (static) | Lines through past swing highs / lows | **Built 2026-10-18** (`price_action/horizontal_sr/`, §4); zones built 2026-10-26 as a separate layer, stopped with open items (§4.13) |
+| 2 | Trendlines | Sloping lines through rising lows / falling highs | **Manual checks:** chain check 2026-10-23 (`trendline_check.py`; 1 of 10 days right); Ash's 17-step drawing on every timeframe 2026-10-26 (`trendline_draw.py` + `trendline_confluence.py`). All in **`TRENDLINES.md`**. Entries / exits on the new lines, then the module |
 | 3 | Channels and fan principle | A parallel line to a trendline; the fan of steeper lines from one major low (Murphy) | Study later. Builds on trendlines |
 | 4 | Moving averages (dynamic S&R) | Price finding support/resistance at an MA | **Studied 2026-10-19 (§5): not S&R on Nifty.** Built as the EMA break watch (`EMA_BREAK.md`), not as S&R lines |
 | 5 | Round numbers (psychological) | e.g. Nifty 24,000 / 24,500 / 25,000 | Study later |
@@ -44,7 +44,7 @@ For S&R there is no TradingView indicator to match. Ash draws his own lines, so 
 9. Pattern-based S&R (suggested, with chart patterns)
 10. Volume profile (suggested last; Nifty has no volume data)
 
-Ash's rule: only #1–#3 are things he manages manually. **#4 onward are studied, discussed and decided one at a time. We cross that bridge when we come to it.**
+Ash's rule: only #1–#3 are things she manages manually. **#4 onward are studied, discussed and decided one at a time. We cross that bridge when we come to it.**
 
 ## 3. Working steps per S&R type
 
@@ -79,16 +79,16 @@ Ash's rule: only #1–#3 are things he manages manually. **#4 onward are studied
 - Level-break labels: attempt (wick) / break (close) / retest / held / failed / gap
 
 ### 4.4 Ash's observations (step 3 of Rule #19, 2026-10-18)
-- **Goal:** draw correct horizontal lines on any timeframe, on any chart: Nifty, stocks, and options contract charts (call/put). He needs support and resistance levels on both the Nifty chart and the options chart.
-- **Timeframes:** he draws horizontal S&R on every timeframe he uses (1M / 1W / 1D / 60m / 15m / 5m).
+- **Goal:** draw correct horizontal lines on any timeframe, on any chart: Nifty, stocks, and options contract charts (call/put). She needs support and resistance levels on both the Nifty chart and the options chart.
+- **Timeframes:** she draws horizontal S&R on every timeframe she uses (1M / 1W / 1D / 60m / 15m / 5m).
 - **Zone, not a line.** The tolerance comes from books/studies (see 4.5). *Superseded by 4.6: lines only for now; Ash reads the zone by eye.*
 - **Which levels are kept:**
   - 1D / 1W / 1M levels are kept.
   - 60m levels are kept from recent times only.
   - Lower timeframe levels (15m / 5m) are drawn fresh every day.
 - **Previous period:** previous day / week / month high and low (as in the research). *Built as previous-day O/H/L/C tags only (4.6).*
-- **Touches:** to him, multiple touches mean price is trying to break. Fortuna should only record the base facts: the level, how close price is, how many times price has touched it, and whether it broke. Meaning comes later when indicators are combined. No strength rule is coded. *Today the snapshot gives the level and distance; touch count and break are not built yet (open item, via the level-break engine).*
-- His 1M method: horizontal levels from the lowest price upward.
+- **Touches:** to her, multiple touches mean price is trying to break. Fortuna should only record the base facts: the level, how close price is, how many times price has touched it, and whether it broke. Meaning comes later when indicators are combined. No strength rule is coded. *Today the snapshot gives the level and distance; touch count and break are not built yet (open item, via the level-break engine).*
+- Her 1M method: horizontal levels from the lowest price upward.
 - Intraday: S1 / R1 / R2 / R3 on the 5m chart are entries and bookings.
 
 ### 4.5 Zone tolerance research (2026-10-18)
@@ -99,33 +99,33 @@ Ash's rule: only #1–#3 are things he manages manually. **#4 onward are studied
 - Decision: no zones for now (4.6). Kept for when zones are coded.
 
 ### 4.6 Decisions (Ash, 2026-10-18)
-- **Plan changed: no zones.** A horizontal line sits at every Zig Zag swing: the candle HIGH for a swing high, the candle LOW for a swing low. The zone research in 4.5 is kept for reference only.
+- **Plan changed: no zones.** A horizontal line sits at every Zig Zag swing: the candle HIGH for a swing high, the candle LOW for a swing low. The zone research in 4.5 is kept for reference only. *Later (2026-10-26): zones built as a separate layer on top of the lines (§4.13); the lines are unchanged.*
 - **Simplified further:** every Zig Zag point on every timeframe (1M/1W/1D/60m/15m/5m) is a horizontal line, including the latest unlocked point as the chart shows it.
 - **Labels:** each line carries its timeframe, swing type (high/low), date-time and price. If a line's price equals the previous day's open/high/low/close, it also gets that label (PDO/PDH/PDL/PDC). Previous day OHLC is not added as separate lines.
 - **Output:** S1 = nearest line below price, R1 = nearest line above price, on any chart.
 - **Numbering (Option a):** each timeframe is numbered separately, outward from the current price: R1, R2, R3… above and S1, S2, S3… below, nearest first. A line exactly at price is labelled AT and not numbered.
-- **Order of work:** (1) the module correctly identifies all horizontal lines on all timeframes; (2) Ash cross-checks them against his own drawings on tv.dhan; (3) the frontend shows Option (a) so he can read his S&R quickly while trading.
+- **Order of work:** (1) the module correctly identifies all horizontal lines on all timeframes; (2) Ash cross-checks them against her own drawings on tv.dhan; (3) the frontend shows Option (a) so she can read her S&R quickly while trading.
 
 ### 4.7 Decisions after the first chart cross-check (Ash, 2026-10-18 evening)
-- **Cross-check result (data to Fri 16 Oct 2026):** every line Ash drew on 1M / 1W / 1D / 4h / 1h / 15m / 5m is a Fortuna Zig Zag line, to the paisa, except 22,840.30 (1h): a small sideways patch around Mon 28 – Tue 29 Sep 2026, not a swing turn (open item). After the rules below, two of his lines are listed under another line instead of standing alone:
+- **Cross-check result (data to Fri 16 Oct 2026):** every line Ash drew on 1M / 1W / 1D / 4h / 1h / 15m / 5m is a Fortuna Zig Zag line, to the paisa, except 22,840.30 (1h): a small sideways patch around Mon 28 – Tue 29 Sep 2026, not a swing turn (open item). After the rules below, two of her lines are listed under another line instead of standing alone:
   - 23,118.60 (low Tue 15 Sep 2026 15:25, 5m): outside the 5m recency window; 60m / 15m keep 23,116.10 (low Wed 16 Sep 2026), 2.50 pts away.
   - 24,774.30 (high Mon 3 Aug 2026) on 1D / 1W: merged into 24,857.75 by rule A (conflict below).
 - **Recency ("lets try this"):** 1M / 1W / 1D keep all history. 60m and 15m keep lines whose pivot is in the last 25 trading days (5 weeks); 5m the last 3 trading days. Without it, the near 60m / 15m / 5m lines were old 2024–2025 swings (5m R1 was a Jan 2025 low).
 - **Merge close lines, rule A:** lines within the timeframe's equal tolerance (5m 0.05%, 15m 0.10%, 60m 0.20%, 1D/1W/1M 0.50%) become one line.
-  - All highs in the group → keep the highest. Ash: in a range he picks the highest high (26,373.20 over 26,277.35 / 26,325.80).
+  - All highs in the group → keep the highest. Ash: in a range she picks the highest high (26,373.20 over 26,277.35 / 26,325.80).
   - All lows → keep the lowest (22,179.90 over 22,182.55).
-  - Highs and lows mixed (support turned resistance) → keep the earliest (23,056.40 over 23,059.45).
+  - Highs and lows mixed (support turned resistance) → **changed 2026-10-23 (Ash): by side of price** — a group below price (support) keeps its **lowest swing low**, a group above price (resistance) keeps its **highest swing high**; only a group with no close given (or at price) keeps the earliest. Ash's example: 23,059.45 (low) over 23,056.40 (high) as support on 19 Oct. *(Was: mixed → earliest, 23,056.40 over 23,059.45.)*
   - Ties keep the earliest. Absorbed lines are listed with the kept line, never lost.
 - **Two fixes from the second run:**
   - Lines on opposite sides of price never merge. On 60m, 23,149.85 (above price) had merged into 23,116.10 (below).
   - A line equal to PDO / PDH / PDL / PDC never merges with another price, so the tag stays on the right line. Identical PD prices from several timeframes still combine.
 - **Trading ladder (5m chart):** the lines of all timeframes merged again within 0.05% and numbered from the 5m close. Each line lists the timeframes it is on. R1 is the first profit booking, R2 the second target, R3 the final target; re-entry on the contract chart is at VWAP. Result on 16 Oct 2026: R1 23,149.85 (PDH), R2 23,162.70, matching Ash's 5m chart.
-- **Conflict kept as option (a) for now:** rule A merges 24,774.30 (high Mon 3 Aug 2026, drawn by Ash) into 24,857.75 (high Thu 5 Dec 2024) on 1D / 1W. (a) Keep the true highest, 24,857.75 (**chosen**). (b) On 1D / 1W, let the highest / lowest rule look back a fixed period only (e.g. 12 months), so the recent 24,774.30 is kept. Ash draws within his visible range, which is closer to (b). **Switch the code to (b) if it proves right.**
+- **Conflict kept as option (a) for now:** rule A merges 24,774.30 (high Mon 3 Aug 2026, drawn by Ash) into 24,857.75 (high Thu 5 Dec 2024) on 1D / 1W. (a) Keep the true highest, 24,857.75 (**chosen**). (b) On 1D / 1W, let the highest / lowest rule look back a fixed period only (e.g. 12 months), so the recent 24,774.30 is kept. Ash draws within her visible range, which is closer to (b). **Switch the code to (b) if it proves right.**
 
 ### 4.8 Open items (horizontal S&R)
 - Consolidation levels that are not swings (22,840.30 on 1h, Mon 28 – Tue 29 Sep 2026; Bulkowski's horizontal consolidation regions).
 - Option (b) above.
-- Zones in use: Ash reads prices near a line as "in the zone" by eye; the zone research in 4.5 is kept for when this is coded.
+- Zones: built 2026-10-26 as a separate layer (`hsr_zones.py`, §4.13), stopped with open items there.
 - Touch count and break per line (4.4), through the level-break engine.
 - Previous week / month high and low (4.4) — only previous-day tags are built.
 - Snapshot on the frontend (package ready, §4.9).
@@ -139,7 +139,10 @@ Ash's rule: only #1–#3 are things he manages manually. **#4 onward are studied
 | `horizontal_sr.py` (pure) | `swing_lines`, `recent_since`, `keep_recent`, `pd_tags`, `merge_close_lines` (rule A + the two fixes), `number_lines`, `timeframe_lines` (one timeframe, not numbered), `horizontal_sr` (one timeframe, numbered), `trading_ladder`; settings `RECENT_TRADING_DAYS = {60m: 25, 15m: 25, 5m: 3}` |
 | `horizontal_sr_check.py` | manual check: every timeframe's ladder with distance, swing, pivot candle, locked, PD tag, merged lines; then the TRADING LADDER with timeframes |
 | `horizontal_sr_snapshot.py` | `snapshot_from_lines`, `summary_line`, `build_horizontal_sr_snapshot` (never raises) — JSON-safe package for the frontend |
-| `test_horizontal_sr.py`, `test_horizontal_sr_snapshot.py` | 33 + 9 tests |
+| `test_horizontal_sr.py`, `test_horizontal_sr_snapshot.py` | 38 + 9 tests |
+| `hsr_zones.py` (pure, new 2026-10-26) | zones (§4.13): `depth_limits`, `swing_zones`, `same_turns`, `merge_zones`, `zone_breaks`, `number_zones`, `hsr_zones`; settings `GAMMA_WINDOW = 20`, `ATR_WINDOW = 14`, `BAR_SPAN` |
+| `hsr_zones_check.py` (new 2026-10-26) | manual check: zones on the 5m chart, last 7 days, each day's zones known at 09:15; log + chart. Reuses `candles_at` / `data_check` from `trendlines/trendline_draw.py` and `_swings` / `WARMUP_CANDLES` from `trendline_check.py` (manual-check helpers; `hsr_zones.py` itself imports only `horizontal_sr.py`) |
+| `test_hsr_zones.py` (new 2026-10-26) | 18 tests |
 
 Inputs: `find_zigzag_swings` with `zigzag_settings` (deviation, depth, equal tolerance per timeframe); candles via `indicator_ohlcv_reader.read_for_indicators`; dates via `indicator_common.text_format.report_date`. Reads only; writes only its own logs. Works on any OHLCV series (Nifty, stocks, option contracts).
 
@@ -153,15 +156,18 @@ python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.hor
 python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.horizontal_sr_snapshot [--json] [--key KEY --name NAME --daily-domain universe]
 python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.test_horizontal_sr
 python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.test_horizontal_sr_snapshot
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.hsr_zones_check [--date YYYY-MM-DD] [--at HH:MM] [--key KEY --daily-domain universe]
+python -m modules.Module_F_Tech_Indicators_Funnel.price_action.horizontal_sr.test_hsr_zones
 ```
-Logs: `logs\horizontal_sr_test_logs\` — `horizontal_sr_check.log`, `horizontal_sr_snapshot.log`, `horizontal_sr_unit_tests.log`, `horizontal_sr_snapshot_unit_tests.log` (overwritten each run; first line = the command). Run the data refresh first (after 4 pm for today's close).
+Logs: `logs\horizontal_sr_test_logs\` — `horizontal_sr_check.log`, `horizontal_sr_snapshot.log`, `horizontal_sr_unit_tests.log`, `horizontal_sr_snapshot_unit_tests.log`, `hsr_zones_check.log` + `hsr_zones_<date>.html`, `hsr_zones_unit_tests.log` (overwritten each run; first line = the command). Run the data refresh first (after 4 pm for today's close).
 
-### 4.11 Tests — 42, all pass (Windows, 2026-10-18)
+### 4.11 Tests — 65, all pass (Windows, 2026-10-26)
 
 | File | Tests | Proves |
 |---|---|---|
-| `test_horizontal_sr.py` | 33 | one line per swing; line price = the swing candle's high / low on real Zig Zag output; numbering outward from close, top of chart first, AT at 2 decimals; equal prices stay separate; PD tags exact, missing field raises; recency counts trading days; rule A on Ash's examples (26,373.20, 22,179.90, 23,056.40); tolerance bounds the group width; never merging across price (real 60m case 23,149.85 / 23,116.10); PD lines never merged with another price, same-price PD lines combine across timeframes; trading ladder lists timeframes; naive and timezone-aware times mix; input not modified; bad close / missing columns raise; empty input |
+| `test_horizontal_sr.py` | 38 | one line per swing; line price = the swing candle's high / low on real Zig Zag output; numbering outward from close, top of chart first, AT at 2 decimals; equal prices stay separate; PD tags exact, missing field raises; recency counts trading days; rule A on Ash's examples (26,373.20, 22,179.90; mixed by side of price: below → lowest low 23,059.45, above → highest high 22,900.65, the matching kind not the extreme price, no close → earliest, trading ladder applies the side rule); tolerance bounds the group width; never merging across price (real 60m case 23,149.85 / 23,116.10); PD lines never merged with another price, same-price PD lines combine across timeframes; trading ladder lists timeframes; naive and timezone-aware times mix; input not modified; bad close / missing columns raise; empty input |
 | `test_horizontal_sr_snapshot.py` | 9 | nearest first on each side; text format R3 · R2 · R1 / S1 · S2 · S3; line fields; "no line" text; summary line; all seven views built and JSON-safe; never raises when the reader raises; a failed timeframe is reported and the rest still built |
+| `test_hsr_zones.py` | 18 | depth limits use only past candles; swing high zone = wick to body top, swing low = wick to body bottom; at least gamma deep, never more than half the ATR; missing swing candle / unknown timeframe raise; the same turn on two timeframes is one swing with the smaller zone; the same price on different days is two swings; overlapping zones merge and count touches (highs / lows); touching edges merge, a gap does not; a wick past the far edge breaks (down from above, up from below); highs above a support zone are not a break; the side from the close decides the direction; numbering R / AT / S from the close; bad close raises; end to end with input not modified; empty input |
 
 ### 4.12 Verification record (tv.dhan.co, Nifty 50, data to Fri 16 Oct 2026)
 
@@ -176,6 +182,39 @@ Logs: `logs\horizontal_sr_test_logs\` — `horizontal_sr_check.log`, `horizontal
 | Monthly Zig Zag 5 / 10 vs 10 / 10 | all of Ash's monthly lines appear with both; 10 / 10 only drops the small 2012–2013 swings; 5 / 10 kept |
 
 **Snapshot, 16 Oct 2026:** `S&R: R1 23,149.85 PDH · S1 23,141.55 (trading ladder)`.
+
+**After the rule A change (2026-10-23):** the mixed group 23,056.40 (high) / 23,059.45 (low) below price now keeps **23,059.45** (Ash: the lowest of the Zig Zag lows); above price, 22,894.15 / 22,900.65 keeps **22,900.65**. Tests 38 + 9 pass on Windows (2026-10-23).
+
+### 4.13 Horizontal S&R zones (`hsr_zones.py`, built 2026-10-26, stopped with open items)
+**Why:** Ash (2026-10-26): "HSR zones are what the books and studies say, I follow the same." Research recap (§4.1, §4.5, refreshed 2026-10-26):
+- **Books / practice:** a zone is an area where price **reversed several times** at about the same price (two reversals usually the minimum, separate episodes count more; one reversal = a possible zone). Edges: the outer edge through the **extreme wick** of the touches, the inner edge at the **candle bodies**. Width grows with timeframe and volatility (often checked against ATR; common indicator practice: swing ± ATR/2). Stronger: higher timeframe, repeated well-spaced touches (disputed: tests also use the level up), fresh, confluence (round numbers, MAs). A close beyond confirms a break in the books; role reversal after a real break. ([LuxAlgo S/R zone](https://www.luxalgo.com/library/concept/s-r-zone.md), [Capital.com S&R zones](https://capital.com/en-gb/learn/technical-analysis/support-and-resistance-zones), [LuxAlgo ATR S&R](https://www.luxalgo.com/library/indicator/NxezQute-atr-support-and-resistance/))
+- **Studies (Garzarelli et al. 2014; Chung & Bellotti 2021):** zone half-width = the average absolute bar-to-bar price change of the series. ([arXiv 2101.07410](https://arxiv.org/pdf/2101.07410))
+
+**Decisions (Ash, 2026-10-26):** a new file, nothing in `horizontal_sr.py` changes ("don't touch what we did before"); the books + studies combination below; **a wick can say break**; no strength score (only base facts, §4.4).
+
+**Rules as built:**
+1. Every Zig Zag swing on 1M / 1W / 1D / 60m / 15m / 5m is one zone: swing high = candle high down to the body top (max of open / close); swing low = candle low up to the body bottom (min of open / close).
+2. Depth at least **gamma** = mean |close − previous close| of the last 20 candles (studies) and at most **half the ATR** (mean true range of the last 14 candles; indicator practice), both from that timeframe's own candles up to the swing candle (no future data; works on Nifty, stocks and option premiums).
+3. Recency as for lines (`RECENT_TRADING_DAYS`: 1M / 1W / 1D all history, 60m / 15m 25 trading days, 5m 3).
+4. The same turning point on several timeframes (same kind, same price at 2 decimals, pivots within one candle of the bigger timeframe) counts **once**; it keeps the zone of its smallest timeframe and lists all its timeframes.
+5. Overlapping zones merge (touching edges count as overlapping). **Touches** = separate swings inside.
+6. Facts per zone: low / high, touches, highs and lows inside (a mix = role reversal seen), timeframes, highest timeframe, first / last touch, the swings. Side from the reference close: **R** (zone above), **S** (below), **AT** (contains it); numbered R1 / S1 nearest first.
+7. **Break** (wick): from the zone's side at the reference close — an S zone breaks down on a later low below it, an R zone up on a later high above it, an AT zone either way; the zone is kept with the time and direction of the first break.
+
+**Check (`hsr_zones_check.py`):** the 5m chart of the last 7 days; each day's zones use only candles finished before **09:15** that day (previous close = reference), drawn across the day in colour (red R, green S, orange AT) until a wick breaks them (black square, then grey). Log: per day the 3 nearest zones each side with touches, timeframes, last touch, break. Fix found while building it (2026-10-26): break direction first came from the first candle after the last touch, which gave "R zone broke down"; now from the zone's side at the reference close (+1 test).
+
+**What the check showed (Ash's data, 14 – 23 Oct 2026):**
+- Zones that held: 23,070.15–23,207.45 (1W 1D 1h 15m) capped 16 / 19 Oct; 22,179.90–22,438.06 (1M 1W 1D 1h 15m) caught the 23 Oct fall (low 22,372.00, inside it); on 23 Oct the zones broke in order as price fell (AT 09:30, S1 09:55, S2 10:05).
+- **Problems (Ash, 2026-10-26: "are you drawing everything as zone?"):** (a) **every single swing is drawn as a zone**, even one swing on one timeframe (e.g. 23 Oct R2 22,889.00–22,900.65, 1 touch, 5m) — the books need 2+ reversals; (b) **chained wide zones**: a swing joins a zone when it overlaps any part of it, so busy areas grow (15 Oct R1 22,627.50–22,809.35, 182 pts, 15 touches; 23 Oct AT 22,677.33–22,811.35, 134 pts). Proposed fix (not approved): a zone needs 2+ separate swings; a swing joins only the zone's core (where its swings overlap); single swings stay lines. **Ash stopped the zone work here (2026-10-26).**
+
+**Open items (zones):**
+1. Single swings as zones → need 2+ swings? Single swings as thin lines or hidden?
+2. Chaining → join only the zone's core?
+3. Gap opens: a wick through a zone at the 09:15 open counts as a break today (16 / 21 Oct broke several zones at the open) — keep?
+4. Wide higher-timeframe zones (22,179.90–22,438.06 258 pts; 23,263.15–23,413.11 150 pts) — keep as the books say?
+5. Zones are fixed at 09:15; add new swings confirmed during the day?
+6. Not used anywhere yet: the 5m zones chart in `trendline_draw.py` and `trendline_confluence.py` still use their own temporary zone grouping (`TRENDLINES.md` §11); switch them over only when zones are approved.
+7. Touch count after the zone formed (tests) and freshness; volume.
 
 ---
 
@@ -192,7 +231,7 @@ Logs: `logs\horizontal_sr_test_logs\` — `horizontal_sr_check.log`, `horizontal
 - **No published study measures how often price bounces at an EMA**, which EMA, or which timeframe (unlike horizontal levels). An NQ 5m EMA backtest found online is a cross test, not a bounce test ([Astreka](https://www.astreka.com/market-insights/best-ema-for-futures-trading-5-minute-nq-ema-backtest)).
 
 ### 5.3 Ash's observations
-- Uses EMAs on the daily only; his 60m / 15m / 5m charts carry no EMAs (screenshots 2026-10-18).
+- Uses EMAs on the daily only; her 60m / 15m / 5m charts carry no EMAs (screenshots 2026-10-18).
 - Logged on Mon 7 Sep 2026 that Nifty was rejected at the 200D EMA.
 - Decision (Ash): since the books say it but no study measures it, **test it on Nifty's own history before building anything.**
 
@@ -256,7 +295,9 @@ Tests: `test_line_reaction_study.py` 17 (single / multi-touch bounce, break and 
 
 ---
 
-## 6. Type 3 — Trendline S&R (not started)
+## 6. Type 3 — Trendline S&R → `TRENDLINES.md`
+
+Moved to its own document on 2026-10-26 (Ash: keep them separate). There: research, the old chain check (`trendline_check.py`), the new drawing Ash's way on every timeframe (`trendline_draw.py`), all timeframes on one chart (`trendline_confluence.py`), open questions. Trendlines use the horizontal S&R of §4 (trading ladder, targets).
 
 ---
 
@@ -284,6 +325,8 @@ Tests: `test_line_reaction_study.py` 17 (single / multi-touch bounce, break and 
 ---
 
 ## Change log
+- **v1.3 — 2026-10-26.** Status, §1. Horizontal S&R: §4.6 / §4.8 notes, §4.9 code map, §4.10 run, §4.11 tests 65 (+18 `test_hsr_zones.py`), new §4.13 horizontal S&R zones (`hsr_zones.py`, `hsr_zones_check.py`: research recap, Ash's decisions, rules, check result on 14–23 Oct, problems found, stopped with open items). **§6 trendlines moved to its own `TRENDLINES.md`** (with the every-day check result and the new drawing Ash's way); §6 here is now a pointer.
+- **v1.2 — 2026-10-23.** Type 3 trendlines (§6): research, Ash's method, rules as built, horizontal S&R in trendlines, draft exits (on hold for options data), code map, how to run (incl. multi-day), open items, verification on 19 Oct. Rule A for mixed groups changed to by side of price (§4.7, §4.11 47 tests, §4.12). §1 table, status.
 - **v1.1 — 2026-10-19.** Type 2 EMA S&R (§5): research, Ash's observations, the Nifty study (`studies/ema_sr/`, shared engine in `indicator_common/line_reaction_study.py`), results, method lessons; decision: EMAs are not S&R on Nifty → EMA break watch (`EMA_BREAK.md`). §1 and §2 updated.
 - **v1 — 2026-10-18.** Horizontal S&R built (`price_action/horizontal_sr/`): every Zig Zag swing a line, recency, rule A merge, never across price, PD lines kept, per-timeframe ladders + trading ladder, check, snapshot, 42 tests; checked against Ash's drawings (§4.7, §4.12). Folder corrected to `price_action/`.
 - **v0.1 — 2026-10-18.** Scope (11 types), build sequence, research for horizontal S&R, Ash's observations, zone research.

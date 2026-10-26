@@ -320,6 +320,48 @@ def test_trading_ladder_empty():
     assert trading_ladder([], 100.0, 0.05).empty
 
 
+# --- rule A by side of price (Ash, 2026-10-23) --------------------------------
+
+def test_merge_mixed_below_price_keeps_lowest_low():
+    # Ash: support at 11:20 on 19 Oct is 23,059.45 (Fri 16 Oct 11:10 low), not the
+    # older 23,056.40 high (Thu 15 Oct 13:35) — below price, the lowest LOW
+    lines = _lines([("high", 23056.40, "2026-10-15 13:35", True),
+                    ("low", 23059.45, "2026-10-16 11:10", True)], "5m")
+    out = merge_close_lines(lines, 0.05, close=23062.25)
+    assert list(out["price"]) == [23059.45]
+    assert "23,056.40" in out.iloc[0]["merged_from"]
+
+
+def test_merge_mixed_above_price_keeps_highest_high():
+    # 19 Oct 15:25 close 22,888.95: 22,894.15 low (Thu) / 22,900.65 high (Mon 14:55) -> 22,900.65
+    lines = _lines([("low", 22894.15, "2026-10-15 11:15", True),
+                    ("high", 22900.65, "2026-10-19 14:55", True)], "5m")
+    out = merge_close_lines(lines, 0.05, close=22888.95)
+    assert list(out["price"]) == [22900.65]
+
+
+def test_merge_mixed_side_uses_matching_kind_not_extreme_price():
+    # below price: a high lower than the low is not chosen; the lowest LOW is
+    lines = _lines([("low", 100.30, "2026-01-01", True), ("high", 100.10, "2026-01-02", True),
+                    ("low", 100.20, "2026-01-03", True)])
+    out = merge_close_lines(lines, 0.5, close=110.0)
+    assert list(out["price"]) == [100.20]
+
+
+def test_merge_mixed_without_close_still_earliest():
+    lines = _lines([("high", 23056.40, "2026-10-15 13:35", True),
+                    ("low", 23059.45, "2026-10-16 11:10", True)], "5m")
+    assert list(merge_close_lines(lines, 0.05)["price"]) == [23056.40]
+
+
+def test_trading_ladder_applies_side_rule():
+    m5 = merge_close_lines(_lines([("high", 23056.40, "2026-10-15 13:35", True)], "5m"), 0.05)
+    m15 = merge_close_lines(_lines([("low", 23059.45, "2026-10-16 11:10", True)], "15m"), 0.10)
+    out = trading_ladder([m5, m15], 23062.25, 0.05)
+    s1 = out[out["label"] == "S1"].iloc[0]
+    assert s1["price"] == 23059.45 and s1["timeframes"] == "15m 5m"
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
 
 

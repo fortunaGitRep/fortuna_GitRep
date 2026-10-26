@@ -12,7 +12,11 @@ Rules (SUPPORT_RESISTANCE.md section 4.6):
      equal tolerance (zigzag_settings equal_tol_pct) are one line. Keep:
        all highs in the group  -> the highest
        all lows in the group   -> the lowest
-       highs and lows mixed    -> the earliest (support turned resistance)
+       highs and lows mixed    -> below price (support): the lowest swing LOW;
+                                  above price (resistance): the highest swing HIGH
+                                  (Ash, 2026-10-23: "23,149.85 highest of the multiple
+                                  zigzags, 23,059.45 lowest"); without a close (or at
+                                  price): the earliest, as before
      Ties keep the earliest. Absorbed lines are listed in `merged_from`.
      Lines on opposite sides of price never merge; a line equal to PDO/PDH/
      PDL/PDC is never merged with another price (fixes, Ash 2026-10-18).
@@ -103,15 +107,16 @@ def pd_tags(lines: pd.DataFrame, prev_day: Optional[dict]) -> pd.DataFrame:
     return out
 
 
-def _keep_index(group: pd.DataFrame) -> int:
-    """Rule A: all highs -> highest, all lows -> lowest, mixed -> earliest."""
+def _keep_index(group: pd.DataFrame, side: Optional[str] = None) -> int:
+    """Rule A: all highs -> highest, all lows -> lowest; mixed -> below price the lowest
+    low, above price the highest high, otherwise (no side) the earliest."""
     kinds = set(group["kind"])
-    if kinds == {"high"}:
-        best = group["price"].max()
-        pool = group[group["price"] == best]
-    elif kinds == {"low"}:
-        best = group["price"].min()
-        pool = group[group["price"] == best]
+    if kinds == {"high"} or (len(kinds) > 1 and side == "above"):
+        highs = group[group["kind"] == "high"]
+        pool = highs[highs["price"] == highs["price"].max()]
+    elif kinds == {"low"} or (len(kinds) > 1 and side == "below"):
+        lows = group[group["kind"] == "low"]
+        pool = lows[lows["price"] == lows["price"].min()]
     else:
         pool = group
     return pool.sort_values("pivot_time", kind="stable").index[0]
@@ -144,20 +149,21 @@ def merge_close_lines(lines: pd.DataFrame, tol_pct: float,
         return out
 
     is_pd = out["pd_tags"].fillna("") != ""
-    parts = [(out[is_pd], 0.0)]
+    parts = [(out[is_pd], 0.0, None)]
     rest = out[~is_pd]
     if close is None:
-        parts.append((rest, tol_pct))
+        parts.append((rest, tol_pct, None))
     else:
         c, p = round(float(close), 2), rest["price"].round(2)
-        parts += [(rest[p < c], tol_pct), (rest[p == c], 0.0), (rest[p > c], tol_pct)]
-    merged = [_merge_frame(df, tol) for df, tol in parts if not df.empty]
+        parts += [(rest[p < c], tol_pct, "below"), (rest[p == c], 0.0, None), (rest[p > c], tol_pct, "above")]
+    merged = [_merge_frame(df, tol, side) for df, tol, side in parts if not df.empty]
     return (pd.concat(merged, ignore_index=True)
             .sort_values(["price", "pivot_time"], kind="stable").reset_index(drop=True))
 
 
-def _merge_frame(out: pd.DataFrame, tol_pct: float) -> pd.DataFrame:
-    """Rule A merge of one partition (see merge_close_lines)."""
+def _merge_frame(out: pd.DataFrame, tol_pct: float, side: Optional[str] = None) -> pd.DataFrame:
+    """Rule A merge of one partition (see merge_close_lines). `side`: 'below' / 'above'
+    price, or None."""
     out = out.sort_values(["price", "pivot_time"], kind="stable").reset_index(drop=True)
     group_id, start, gid = [], None, -1
     for p in out["price"]:
@@ -168,7 +174,7 @@ def _merge_frame(out: pd.DataFrame, tol_pct: float) -> pd.DataFrame:
 
     kept = []
     for _, g in out.groupby("_g", sort=True):
-        k = _keep_index(g)
+        k = _keep_index(g, side)
         row = out.loc[k].copy()
         others = g.drop(index=k)
         tfs = set(" ".join(g["timeframes"]).split())

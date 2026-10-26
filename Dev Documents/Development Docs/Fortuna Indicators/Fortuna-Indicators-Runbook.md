@@ -4,9 +4,9 @@
 should be able to: run every indicator, read its output, find its log, check it against TradingView, spot
 the known differences, fix the common errors, and add the next indicator the same way. The **what and why**
 of each indicator lives in its spec (`EMA.md`, `MACD.md`, `ADX.md` — §0 of each is the plain‑English
-definition; `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md`, `SUPPORT_RESISTANCE.md` and `EMA_BREAK.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
+definition; `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md`, `SUPPORT_RESISTANCE.md`, `TRENDLINES.md` and `EMA_BREAK.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 1.7 — 2026‑10‑19. Covers: indicator reader, EMA, EMA break watch, MACD, ADX / DMI, RSI, Stochastic RSI, market structure and horizontal S&R (`price_action/`), shared helpers (`indicator_common/`), studies (`studies/`)._
+_Version 1.9 — 2026‑10‑26. Covers: indicator reader, EMA, EMA break watch, MACD, ADX / DMI, RSI, Stochastic RSI, market structure, horizontal S&R (lines + zones check) and the trendline manual checks (`price_action/`), shared helpers (`indicator_common/`), studies (`studies/`)._
 
 ---
 
@@ -21,7 +21,8 @@ _Version 1.7 — 2026‑10‑19. Covers: indicator reader, EMA, EMA break watch,
 | **RSI** 14 close | **Momentum level** 0–100 in seven zones (80 / 70 / 55 / 45 / 30 / 20), 45–55 = RSI S&R zone; every zone change and 50 cross | 1M 1W 1D 60m 15m 5m | `RSI.md` | `oscillators/rsi/` |
 | **Stochastic RSI** 14 14 3 3 close | **Where RSI sits in its 14‑candle range**: %K / %D 0–100, zones OVERBOUGHT ≥80 / MIDDLE / OVERSOLD <20 on %K; every zone change and %K/%D cross (equal lines = no cross) | 1M 1W 1D 60m 15m 5m | `STOCH_RSI.md` | `oscillators/stoch_rsi/` |
 | **Market structure** (Zig Zag 5% / 0.2%, depth 10) | **Trend from price alone**: swings, level breaks (attempt / break / gap / cleared / retest / held / failed / re‑break), BOS (trend continuation) and CHoCH (potential reversal), uptrend / downtrend / neutral and the prices that change it | 1M 1W 1D 60m 15m 5m + provisional 60m (from 5m) and 1D (from 60m) | `MARKET_STRUCTURE.md` | `price_action/swing_points/`, `price_action/market_structure/` |
-| **Horizontal S&R** (every Zig Zag swing a line) | **Where price can stop**: R1, R2, R3… above and S1, S2, S3… below on each timeframe, plus the trading ladder (all timeframes on the 5m chart); PDO / PDH / PDL / PDC tags | 1M 1W 1D 60m 15m 5m + trading ladder | `SUPPORT_RESISTANCE.md` | `price_action/horizontal_sr/` |
+| **Horizontal S&R** (every Zig Zag swing a line) | **Where price can stop**: R1, R2, R3… above and S1, S2, S3… below on each timeframe, plus the trading ladder (all timeframes on the 5m chart); PDO / PDH / PDL / PDC tags. **Zones** (manual check, stopped with open items): each swing wick → body, overlapping zones merged, touches, wick break | 1M 1W 1D 60m 15m 5m + trading ladder | `SUPPORT_RESISTANCE.md` §4, §4.13 | `price_action/horizontal_sr/` |
+| **Trendlines** (manual checks — not a module yet) | **Ash's falling / rising trendlines**: (old) chain check — line 1 / 2 / 3 + vertical, entries, after the break, draft exits (on hold); (new) **Ash's 17-step drawing on every timeframe** — outline of the wicks from the extreme, wick break, trend per timeframe, horizontal S&R targets, charts per timeframe (5m: 7 days) + combined + 7-day 5m zones; all timeframes on one chart (`trendline_confluence`) | old: 5m · new: 1M 1W 1D 1h 15m 5m | `TRENDLINES.md` | `price_action/trendlines/` |
 
 Read them together: EMA = direction, MACD = momentum, ADX = strength, RSI = momentum level, Stochastic RSI = where RSI
 sits in its recent range (the fastest), market structure = trend from swings and breaks, horizontal S&R = the levels price can stop at (R1 first booking, R2, R3), EMA break watch = when a slow EMA is about to break or has broken, and how often such breaks lasted. All are pure calculations on
@@ -261,8 +262,48 @@ python -m …price_action.horizontal_sr.horizontal_sr_snapshot [--key KEY] [--na
 
 Rules in one place: every Zig Zag swing is a line (swing high = candle high, swing low = candle low); 60m / 15m keep the
 last 25 trading days, 5m the last 3, 1M / 1W / 1D all history; lines within the timeframe's equal tolerance merge (all highs →
-highest, all lows → lowest, mixed → earliest), never across price, and a PD line never merges with another price
+highest, all lows → lowest, mixed → by side of price: below = lowest low, above = highest high, no close = earliest), never across price, and a PD line never merges with another price
 (`SUPPORT_RESISTANCE.md` §4.7). No alerts.
+
+**Zones — manual check (2026‑10‑26, stopped with open items, `SUPPORT_RESISTANCE.md` §4.13):**
+```
+python -m …price_action.horizontal_sr.hsr_zones_check [--date YYYY-MM-DD] [--at HH:MM] [--key KEY] [--daily-domain indices|universe]
+```
+| Prints | Log / files (`logs\horizontal_sr_test_logs\`) |
+|---|---|
+| data check (last stored candle per timeframe); per day of the last 7: zones known at 09:15 (previous close), the 3 nearest each side with low–high, width, touches (highs / lows), timeframes, last touch, `BROKE up/down HH:MM` | `hsr_zones_check.log`; chart `hsr_zones_<date>.html` (red R / green S / orange AT bands per day, black square + grey after a wick break) |
+
+Rules: each swing = wick → body (depth ≥ average bar move of the last 20, ≤ half the 14‑candle ATR); same turning point on several timeframes once; overlapping zones merge; a wick past the far edge breaks (side from the previous close). Known problems (open): single swings drawn as zones; chained wide zones.
+
+### 4.8a Trendlines — manual check (`price_action/trendlines/`, not a module yet)
+
+```
+python -m …price_action.trendlines.trendline_check [--date YYYY-MM-DD] [--at HH:MM ...] [--side down|up|both]
+                                                  [--candles FROM TO] [--show N] [--key KEY] [--daily-domain indices|universe]
+python -m …price_action.trendlines.trendline_check --date 2026-10-22 --last 10 --side both      # every-day check
+python -m …price_action.trendlines.trendline_check --dates 2026-10-15 2026-10-19 --side both
+```
+| Command / flag | Prints | Log / files (`logs\trendline_test_logs\`) |
+|---|---|---|
+| default (`--date 2026-10-19 --at 09:50 10:35 11:25 11:40 15:30 --side down`) | candle table; per `--at` time (only candles closed by then): tolerance, top, points, similar highs, CHAIN (line 1 / 2 / 3, vertical candidates, entries with body %, range ×, nearest S1 / R1 on the trading ladder), AFTER THE BREAK, EXIT CANDIDATES (draft), live / unbroken / broken lines | `trendline_check.log`; chart of the last `--at`: `trendline_chart_<date>.html` |
+| `--side up` / `both` | rising lines (lows, green bounces, call entries) / both | |
+| `--last N` / `--dates …` | multi-day: per day a summary (lines, that day's entries → draft exit, trend change) as of 15:30 + chain detail | same log; a chart per day |
+| `--candles FROM TO` | candle-table range | |
+
+Open the chart in a browser (internet needed for the chart library). Labels: `line 1 T1`, `L1 T2`, `L1-Entry`, `vertical T1`, `V T2`, squares = break / retest / failed, `V BREAK` = the vertical's standing break, black `EXIT` = draft exit, orange lines = horizontal S&R on 5m, grey dashed = higher timeframes only. Reads 5m plus 1M / 1W / 1D (`indices`) and 60m / 15m for the trading ladder; a timeframe that fails to load is named in the log and left out. Rules: `TRENDLINES.md` §4. No tests yet (manual check).
+
+**New (2026‑10‑25/26) — Ash's 17-step drawing on every timeframe and all timeframes on one chart (`TRENDLINES.md` §11):**
+```
+python -m …price_action.trendlines.trendline_draw [--date 2026-10-23] [--at 15:30] [--show-live] [--key KEY] [--daily-domain indices|universe]
+python -m …price_action.trendlines.trendline_confluence [--date 2026-10-23] [--at 15:30]
+```
+| Command / flag | Prints | Log / files (`logs\trendline_test_logs\`) |
+|---|---|---|
+| `trendline_draw` | data check; per timeframe 1M / 1W / 1D / 1h / 15m / 5m: look-back, last close, trend (more recent extreme), targets (3 nearest horizontal S&R above / below, this + higher timeframes), falling / rising lines (from the extreme, line now, distance from close, unconfirmed marked), last 5 broken; TREND BY TIMEFRAME + 5m trade direction (follows 1h); 5m zones (known at 09:15) | `trendline_draw.log`; charts `trendline_draw_<1M/1W/1D/1h/15m/5m>_<date>.html`, `trendline_draw_all_<date>.html` (5m + every timeframe), `trendline_draw_5m_zones_<date>.html` (7 days) |
+| `--show-live` | also draws lines whose 2nd point is the last candle (hidden by default) | |
+| `trendline_confluence` | data check; trend + trade direction; ZONES above / below (lines of 2+ timeframes within 0.1%, strength, what built them) | `trendline_confluence.log`; chart `trendline_confluence_<date>.html` |
+
+Chart legend: red falling / green rising, thicker = higher timeframe, solid = last confirmed line, dotted = earlier or broken (stops at the crossing wick), blue = Zig Zag (1M / 1W / 1D / 1h), orange = horizontal S&R, shaded bands = zones. Intraday data for a day arrives with the next day's refresh — the log's data check flags `MISSING`.
 
 ### 4.9 EMA break watch (live 60m / 15m / 5m + context 1M / 1W / 1D)
 
@@ -304,8 +345,8 @@ python -m pytest modules/Module_F_Tech_Indicators_Funnel/indicator_common -v    
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/studies -v                   # 13 (screen only; the file below writes its own log)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/rsi -v           # 86 → logs\rsi_test_logs\test_rsi.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/stoch_rsi -v     # 97 → logs\stoch_rsi_test_logs\test_stoch_rsi.log
-python -m pytest modules/Module_F_Tech_Indicators_Funnel/price_action -v              # 120 = market structure 78 + horizontal S&R 42 (screen only; each file below writes its own log)
-python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 599 (63 + 66 + 61 + 19 + 74 + 86 + 97 + 120 + 13)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/price_action -v              # 143 = market structure 78 + horizontal S&R 65 (screen only; each file below writes its own log)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 622 (63 + 66 + 61 + 19 + 74 + 86 + 97 + 143 + 13)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel -v | Tee-Object -FilePath logs\indicator_suite_tests.log   # same, saved to a log (PowerShell)
 ```
 Market structure test files also run one at a time and write their own log, e.g.
@@ -314,7 +355,7 @@ Market structure test files also run one at a time and write their own log, e.g.
 `swing_legs_unit_tests.log` 4); `market_structure/` → `logs\market_structure_test_logs\`
 (`swing_labels_unit_tests.log` 9, `level_breaks_unit_tests.log` 17, `structure_events_unit_tests.log` 12,
 `market_structure_snapshot_unit_tests.log` 12); `horizontal_sr/` → `logs\horizontal_sr_test_logs\`
-(`horizontal_sr_unit_tests.log` 33, `horizontal_sr_snapshot_unit_tests.log` 9).
+(`horizontal_sr_unit_tests.log` 38, `horizontal_sr_snapshot_unit_tests.log` 9 — prints one "Horizontal S&R snapshot failed … R2 down" traceback on purpose, the never‑raises test; `hsr_zones_unit_tests.log` 18 via `…horizontal_sr.test_hsr_zones`).
 Same for the new files: `trend_indicators.ema_break.test_ema_break` → `logs\ema_break_test_logs\ema_break_unit_tests.log` 10,
 `…test_ema_break_snapshot` → `ema_break_snapshot_unit_tests.log` 9 (prints six "EMA break watch failed … R2 down" tracebacks on
 purpose — the never‑raises test); `indicator_common.test_line_reaction_study` →
@@ -477,7 +518,8 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | `stoch_rsi_test_logs\` | `stoch_rsi_check_<tf>.log` · `stoch_rsi_check_<tf>_<state/crosses/flat/crosscheck>.log` · `stoch_rsi_snapshot.log` · `test_stoch_rsi.log` |
 | `zigzag_test_logs\` | `zigzag_check.log` · `unit_tests.log` · `provisional_unit_tests.log` · `swing_legs_unit_tests.log` |
 | `market_structure_test_logs\` | `market_structure_snapshot.log` · `swing_labels_unit_tests.log` · `level_breaks_unit_tests.log` · `structure_events_unit_tests.log` · `market_structure_snapshot_unit_tests.log` |
-| `horizontal_sr_test_logs\` | `horizontal_sr_check.log` · `horizontal_sr_snapshot.log` · `horizontal_sr_unit_tests.log` · `horizontal_sr_snapshot_unit_tests.log` |
+| `horizontal_sr_test_logs\` | `horizontal_sr_check.log` · `horizontal_sr_snapshot.log` · `horizontal_sr_unit_tests.log` · `horizontal_sr_snapshot_unit_tests.log` · `hsr_zones_check.log` · `hsr_zones_<date>.html` · `hsr_zones_unit_tests.log` |
+| `trendline_test_logs\` | `trendline_check.log` · `trendline_chart_<date>.html` (one per date run) · `trendline_draw.log` · `trendline_draw_<TF>_<date>.html` · `trendline_draw_all_<date>.html` · `trendline_draw_5m_zones_<date>.html` · `trendline_confluence.log` · `trendline_confluence_<date>.html` |
 | `ema_break_test_logs\` | `ema_break_snapshot.log` · `ema_break_unit_tests.log` · `ema_break_snapshot_unit_tests.log` |
 | `indicator_common_test_logs\` | `test_indicator_common.log` · `line_reaction_study_unit_tests.log` |
 | `studies_logs\` | `ema_sr_study.log` · `ema_sr_study_progress.log` · `ema_sr_episodes.csv` · `ema_sr_study_unit_tests.log` |
@@ -524,7 +566,7 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) and th
 
 | Need | Doc |
 |---|---|
-| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md`, `EMA_BREAK.md`); S&R types and rules: `SUPPORT_RESISTANCE.md` |
+| What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md`, `EMA_BREAK.md`); S&R types and rules: `SUPPORT_RESISTANCE.md`; trendlines: `TRENDLINES.md` |
 | Why EMAs are not S&R on Nifty (study, results, method lessons) | `SUPPORT_RESISTANCE.md` §5 |
 | Every market‑structure decision, in the order it was made | "Fortuna — Market Structure Build Plan" (exported next to the specs) |
 | Exact formulas, labels, texts, thresholds | the spec |
@@ -536,6 +578,14 @@ All overwritten on each run. The data‑pipeline logs (refresh, backfill) and th
 ---
 
 ## 12. Change log
+- **v1.9 — 2026‑10‑26.** Trendlines: Ash's 17-step drawing on every timeframe (`trendline_draw.py`) and all timeframes on one chart
+  (`trendline_confluence.py`): §1 table row, §4.8a commands and charts. Horizontal S&R zones manual check (`hsr_zones.py`,
+  `hsr_zones_check.py`, stopped with open items): §1 row, §4.8. Trendlines now have their own spec `TRENDLINES.md` (split out of
+  `SUPPORT_RESISTANCE.md` §6): §1 table, §4.8a, header, §11. Tests: horizontal S&R 65 (+18 zones), price_action 143, total 622
+  (§4.11); §9 log files.
+- **v1.8 — 2026‑10‑23.** Trendline manual check (`price_action/trendlines/trendline_check.py`): §1 table row, new §4.8a
+  (single and multi-day runs, chart, labels), §9 log folder. Horizontal S&R rule A mixed groups by side of price (§4.8 rules);
+  tests now horizontal S&R 47, price_action 125, total 604 (§4.11).
 - **v1.7 — 2026‑10‑19.** EMA break watch (`trend_indicators/ema_break/`) and studies (`studies/ema_sr/`): §1 table +
   reuse exception + `line_reaction_study.py` in `indicator_common`, §2 prefix `…studies`, §3 daily routine, new §4.9 EMA break watch and §4.10
   studies (unit tests now §4.11: EMA break 19, indicator_common 74, studies 13, total 599), §6.1 EMA 50 / 100 / 200
