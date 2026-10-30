@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑10‑26 (indicator sections brought up to date after 16 Oct: EMA break watch + studies §2.18, horizontal S&R lines + zones §2.19, trendline manual checks §2.20; §2.17 S&R folder name corrected; §5 code map, specs, logs and §6 commands; tests 508 → 622). Earlier: 2026‑10‑16 (indicator sections brought up to date: shared helpers `indicator_common/` §2.14, RSI §2.15, Stochastic RSI §2.16, market structure `price_action/` §2.17; §5 code map and §6 commands; specs in Fortuna Indicators/). Earlier: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑10‑30 (derivatives & options: expired Nifty contracts archive §2.21, options sample days + candidate charts §2.22, options IV / Greeks §2.23; §1 storage map, §5 code map, R2 keys, specs and logs, §6 commands; tests 622 → 648 expected). Earlier: 2026‑10‑26 (indicator sections brought up to date after 16 Oct: EMA break watch + studies §2.18, horizontal S&R lines + zones §2.19, trendline manual checks §2.20; §2.17 S&R folder name corrected; §5 code map, specs, logs and §6 commands; tests 508 → 622). Earlier: 2026‑10‑16 (indicator sections brought up to date: shared helpers `indicator_common/` §2.14, RSI §2.15, Stochastic RSI §2.16, market structure `price_action/` §2.17; §5 code map and §6 commands; specs in Fortuna Indicators/). Earlier: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -48,6 +48,8 @@ every backfill.
 | OHLCV price history | Cloudflare R2 | bucket `fortuna-ohlcv`, keys `upstox/universe/<ISIN>.parquet`, `upstox/indices/<slug>.parquet` | big, read‑heavy, zero‑egress |
 | Fundamentals — screening | Supabase Postgres | `f_fundamentals_profile`, `f_fundamentals_metrics` | filtered across all stocks (watchlists) |
 | Fundamentals — archive | Supabase Postgres | `f_fundamentals_statements` (JSONB) | deep per‑stock, occasional |
+| Expired Nifty options + futures (archive) | Cloudflare R2 | `upstox/nifty_options_expired/1m/<expiry>.parquet` (ATM ±9 band), `upstox/nifty_options_expired/rest_30m/<expiry>.parquet` (rest of chain), `upstox/nifty_futures_expired/1m/<expiry>.parquet` | perishable at the source (rolling ~2 years), kept forever here |
+| Options IV / Greeks (computed) | Cloudflare R2 | `upstox/nifty_options_greeks/1m/<expiry>.parquet` | one file per expiry, rebuilt from the archive any time |
 | Progress ledgers | Supabase Postgres | `f_ohlcv_fetch_progress`, `f_fundamentals_fetch_progress`, `f_fundamentals_tier2_progress` | resumability state |
 
 **Shared infra clients:** `db/supabase_client.py → get_supabase()` and
@@ -777,6 +779,82 @@ yet: read‑only checks that draw charts for Ash to compare with her own drawing
   `price_action/horizontal_sr/`; nothing stored. No unit tests yet (they come with the module). Logs + charts →
   `logs/trendline_test_logs/`.
 
+### 2.21 Expired Nifty option + futures archive (BUILT — 2026‑10‑27 → 29)
+
+Upstox Plus unlocks expired F&O contracts (`/v2/expired-instruments/...`). Expiries roll off after ~2 years,
+so everything is archived once and kept: **109 weekly expiries, 3 Oct 2024 → 27 Oct 2026**.
+No ledger table — the R2 listing is the ledger (one file per expiry; a file < 15 KB counts as not stored).
+
+```
+fetch_expired_nifty_options.main(--parts band,futures,rest)
+   ├── read_for_indicators(Nifty 50, universe_intraday, 5m)      ← strike band from the window's low/high
+   ├── get_expiries()                                             ← probe_expired_contracts (/v2 prefix found once)
+   ├── band / rest: week_windows(expiries) → per expiry
+   │     window = expiry week (day after previous expiry → expiry) + 7 days before
+   │     refuse if Nifty 5m ends before the expiry (refresh Nifty first)
+   │     get_contracts(expiry) → band = strikes in [low − 9 × 50, high + 9 × 50], rest = all others
+   │     per contract: chunks(≤ 28 days) → get_candles(1minute | 30minute)   ← _paced()
+   │     candles_frame(): rule 1 (non‑positive prices), rule 2 (bars at/after close: 15:30, 15:40 from 3 Aug 2026)
+   │     drop_after_close() at market level; all contracts OK → Store.write(), else nothing written
+   └── futures: month_candidates() → try each listed expiry, last first, until /future/contract lists one
+         window = previous monthly − 7 days → expiry (previous monthly read from R2, also with --force); current month = pending
+```
+- **Pacing:** 0.13 s between calls (under 500/min); first rate‑limit error → 0.95 s (under 2,000 per 30 min),
+  wait 60 s and retry, up to 40 times. The 30‑minute window is account‑level — stopping and restarting doesn't reset it.
+- **1m is the base:** `check_1m_vs_5m_expired.py` showed Upstox's 5m = 5m built from 1m on 9 / 9 contracts. Build
+  5m / 15m with `expired_archive_reader.to_bars()`.
+- **Audit:** `audit_expired_archive.py` (read‑only, 1 Upstox call) → 105 / 109 option weeks and 24 / 25 futures
+  months clean. Known gaps: 26 Dec 2024 week + Dec 2024 futures (Upstox has no 1m data); 7 round‑strike contracts
+  with no candles; 15:30–15:40 bars missing in Aug–Oct 2026 weeks (after the 15:10 auto square‑off). Short
+  sessions (Nifty < 40 5m bars) not flagged. Weeks whose expiry is after the last Nifty 5m day are flagged.
+- **Refresh:** the morning after each Tuesday expiry, Nifty intraday refresh first (historical candles arrive the
+  next day), then the same command — stored weeks are skipped.
+- **Read side:** `expired_archive_reader.py` — `stored_expiries(part)`, `read_part(part, expiry)` (per‑run cache),
+  `to_bars(df, minutes)`; parts `band`, `rest`, `futures`, `greeks`.
+- Columns: expiry, week_start, window_start, instrument_key, trading_symbol, strike, option_type, lot_size,
+  freeze_quantity, ts, trade_date, open, high, low, close, volume, oi.
+
+### 2.22 Options study — sample days + candidate charts, `studies/options_sample_days/` (2026‑10‑27 → 29)
+
+Read‑only. Picks Nifty days for the contract study from the full daily history and charts their contracts.
+- `sample_days.py` — daily labels (colour; strong = body ≥ 60% of range; gap full_up / up / none / down /
+  full_down at 0.1%); Wyckoff phase (markup / markdown / accumulation / distribution) from locked daily Zig Zag
+  swings (5% / depth 10, memory of the full history); expiry calendar (Thursday to 28 Aug 2025, Tuesday from 2 Sept
+  2025, holiday shifts, DTE 4 → 0 in the Tuesday era); 09:30–11:30 window move and timing; `pick_candidates()` by
+  month, phase × colour, DTE × colour (Tuesday era only), plus expiry‑day downtrend days and window‑against‑colour days.
+- `sample_days_run.py` (`--start`, `--events`) → `logs/options_sample_days_logs/` (`day_table.csv`, `candidates.csv`,
+  `sample_days_report.log`, `sample_days_chart.html`). Tests `test_sample_days.py` 16 (+ `conftest.py` log).
+- `candidate_contracts.py` — each day → expiry (first stored on / after the day), week start, ATM from the 09:15 5m
+  open, ITM2 / ATM / OTM2 CE and PE, futures month, known‑gap flags → `logs/options_candidate_charts/candidate_contracts.csv`.
+- `candidate_charts.py` (`--day`) — one HTML page per day + index: Nifty 5m, CE, PE, futures on one synced time axis
+  from the week start; 5m / 15m / 1m (day only); strike selectors; 09:30 / 11:30 arrows; cursor legend OHLC +
+  volume + OI. Timestamps converted unit‑safe (stored in µs) and shifted to IST for the chart.
+
+### 2.23 Options IV / Greeks, `options_indicators/greeks/` (BUILT — 2026‑10‑29)
+
+Full spec: `Fortuna Indicators\OPTIONS_GREEKS.md`. Upstox gives Greeks live only, so Fortuna computes them.
+```
+archive_greeks.main([--candidates] [--expiry] [--force])
+   ├── stored_expiries("band") minus stored "greeks"      ← refresh = new expiries only
+   └── per expiry: read_part("band") → compute_expiry()
+         forward_by_minute(): strike where CE ≈ PE → 3 nearest with both prices → median K + (C − P)·e^{rT}
+                              (carried ≤ 5 min within the day)
+         minutes_to_expiry(): bar close (ts + 1 min) → expiry's F&O close
+         black76.implied_vol() (bisection) → black76.greeks() (theta with forward held, Upstox convention)
+         otm_steps, oi_chg_1m, oi_chg_day → float32 → R2 upstox/nifty_options_greeks/1m/<expiry>.parquet
+         quality(): near‑ATM IV coverage, CE vs PE IV gap, daily ATM IV range → log
+```
+- Rate 5.50% (RBI repo, `live_greeks_check.REPO_RATE`). Run 29 Oct: 108 expiries, 28.3M rows, ~7 s each.
+- `live_greeks_check.py` — TC‑GK‑01 against Upstox's live option chain (`/v2/option/chain`, nearest listed expiry
+  from `/v2/option/contract`), 8 input conventions → `logs/live_greeks_check_logs/` (`check.log`, `snapshots.csv`
+  appended). PASS 29 Oct (IV ~0.1 point, delta 0.003).
+- Tests `test_black76.py` 6, `test_archive_greeks.py` 4. Logs → `logs/options_greeks_logs/` (`greeks_run.log`,
+  `greeks_summary.log`).
+- `verify_options_archive.py` — read‑only outside check: our day candles vs NSE's F&O bhavcopy (downloaded to
+  `logs/options_verify_logs/bhavcopy/`, reused), ATM IV vs India VIX, IV across strikes → `verify.log`,
+  `nse_compare.csv`, `verify_chart.html`. Result 30 Oct: prices match (open 99%, high / low 100%, last trade 91%);
+  Upstox OI ~5% above NSE end‑of‑day OI; volume in units (NSE in lots); IV vs VIX correlation 0.80; put skew 84% of days.
+
 ---
 
 ## 2A. News pipeline (BUILT — 2026‑09‑04)
@@ -1087,6 +1165,11 @@ be re‑fetched later).
 | `instrument_store.py` | catalogue upsert store |
 | `indicator_ohlcv_reader.py` | read side for indicators: `read_for_indicators()` over `read_candles()`; 1d/1w/1mo + 5m/15m/60m; reader rules 1–2; never raises (§2.11, §2.12) |
 | `test_indicator_ohlcv_reader.py` | 19 unit tests for the reader, no R2 (§2.11, §2.12) |
+| `probe_expired_contracts.py` | read‑only probe of the expired‑instrument APIs; `_get()` (finds the `/v2` prefix once), `get_expiries()`, `get_contracts()`, `get_candles()`, `ProbeError` (§2.21) |
+| `check_1m_vs_5m_expired.py` | read‑only: Upstox 5m vs 5m built from 1m, 9 contracts → `logs/expired_contracts_probe_logs/check_1m_vs_5m.log` (§2.21) |
+| `fetch_expired_nifty_options.py` | archive fetcher: parts band / futures / rest, `_paced()`, `week_windows()`, `month_candidates()`, `chunks()`, `strike_band()`, `fno_close_minute()`, `after_close()`, `drop_after_close()`, `candles_frame()`, `Store`; `--parts --limit --expiry --force --gap` (§2.21) |
+| `audit_expired_archive.py` | read‑only archive audit → `logs/expired_options_audit_logs/` (§2.21) |
+| `expired_archive_reader.py` | read side of the archive: `stored_expiries()`, `read_part()`, `to_bars()`, `GREEKS_PREFIX` (§2.21, §2.23) |
 
 ### Indicators (under `backend/modules/Module_F_Tech_Indicators_Funnel/`)
 | File | Role |
@@ -1130,8 +1213,16 @@ be re‑fetched later).
 | `price_action/trendlines/trendline_check.py` | manual check: Ash's chain (line 1 / 2 / 3 + vertical) on 5m, entries, draft exits (§2.20) |
 | `price_action/trendlines/trendline_draw.py` | manual check: Ash's drawing on every timeframe — `candles_at()`, `window()`, `draw_side()`, `trend_of()`, `hsr_for()`, `zigzag_of()`, `chart_html()`, `zone_bands()`; charts per timeframe + combined + 5m zones (§2.20) |
 | `price_action/trendlines/trendline_confluence.py` | manual check: all timeframes' lines at the last candle → zones with strength (§2.20) |
+| `studies/options_sample_days/sample_days.py`, `sample_days_run.py` | day labels, phases, expiry calendar, candidate picks; run → `logs/options_sample_days_logs/` (§2.22) |
+| `studies/options_sample_days/candidate_contracts.py`, `candidate_charts.py` | candidate day → contracts; HTML charts Nifty / CE / PE / futures (§2.22) |
+| `studies/options_sample_days/test_sample_days.py`, `conftest.py` | 16 unit tests (§2.22) |
+| `options_indicators/greeks/black76.py` | `price()`, `implied_vol()`, `greeks()`, `forward_from_parity()` — Black's model, vectorised (§2.23) |
+| `options_indicators/greeks/archive_greeks.py` | `minutes_to_expiry()`, `forward_by_minute()`, `compute_expiry()`, `quality()` → R2 greeks part (§2.23) |
+| `options_indicators/greeks/live_greeks_check.py` | TC‑GK‑01 vs Upstox live option chain (§2.23) |
+| `options_indicators/greeks/test_black76.py`, `test_archive_greeks.py` | 6 + 4 unit tests (§2.23) |
+| `options_indicators/greeks/verify_options_archive.py` | read‑only check vs NSE bhavcopy and India VIX (§2.23) |
 
-Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md` (+ the market structure build plan), `EMA_BREAK.md`, `SUPPORT_RESISTANCE.md`, `TRENDLINES.md`; hands‑on manual `Fortuna-Indicators-Runbook.md`.
+Indicator spec docs (one per indicator): `Dev Documents\Development Docs\Fortuna Indicators\` — `EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md` (+ the market structure build plan), `EMA_BREAK.md`, `SUPPORT_RESISTANCE.md`, `TRENDLINES.md`, `OPTIONS_GREEKS.md`; hands‑on manual `Fortuna-Indicators-Runbook.md`.
 
 Logs (under `backend/logs/`, git‑ignored by `*.log`), overwritten each run, first line = the command:
 MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_<timeframe>_<state|crosses|turns|events>.log`, `macd_snapshot.log`, `test_macd.log`); EMA → `logs/ema_test_logs/`
@@ -1141,7 +1232,10 @@ MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_<time
 `logs/zigzag_test_logs/` (`zigzag_check.log`, swing test logs) and `logs/market_structure_test_logs/`
 (`market_structure_snapshot.log`, one log per test file); EMA break → `logs/ema_break_test_logs/`; studies →
 `logs/studies_logs/`; horizontal S&R → `logs/horizontal_sr_test_logs/`; trendlines → `logs/trendline_test_logs/`
-(logs + HTML charts). Full list: runbook §9. The reader's own check still prints to screen only.
+(logs + HTML charts); options sample days → `logs/options_sample_days_logs/`, candidate charts →
+`logs/options_candidate_charts/`; IV / Greeks → `logs/options_greeks_logs/`, `logs/live_greeks_check_logs/`, `logs/options_verify_logs/`;
+expired archive → `logs/expired_contracts_probe_logs/`, `logs/expired_options_fetch_logs/` (`fetch_run.log` appended,
+`fetch_summary.log`), `logs/expired_options_audit_logs/`. Full list: runbook §9. The reader's own check still prints to screen only.
 Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14, `ADX.md` §9, `RSI.md` §9, `STOCH_RSI.md` §9, `MARKET_STRUCTURE.md` §8–9, `EMA_BREAK.md`, `SUPPORT_RESISTANCE.md` §4.11 / §4.13, `TRENDLINES.md` §10–11).
 
 ### Supabase tables
@@ -1164,6 +1258,10 @@ Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` �
 | `upstox/indices/<slug>.parquet` | per‑index OHLCV (1d/1w/1mo) |
 | `upstox/universe_intraday/<ISIN>.parquet` | per‑stock intraday (5m/15m/60m stacked), 208 F&O stocks |
 | `upstox/nse_indexes_intraday/<slug>.parquet` | index intraday (5m/15m/60m); Nifty 50 only for now → `Nifty_50.parquet` (§2.8) |
+| `upstox/nifty_options_expired/1m/<expiry>.parquet` | expired Nifty weekly options, ATM ±9 band, 1m (§2.21) |
+| `upstox/nifty_options_expired/rest_30m/<expiry>.parquet` | the rest of each expired chain, 30m (§2.21) |
+| `upstox/nifty_futures_expired/1m/<expiry>.parquet` | expired monthly Nifty futures, 1m (§2.21) |
+| `upstox/nifty_options_greeks/1m/<expiry>.parquet` | computed IV / Greeks per band contract per minute (§2.23) |
 
 ### Migrations
 `003` universe · `004` indices · `005` ohlcv progress · `006` fundamentals (3 tables) ·
@@ -1238,8 +1336,24 @@ python -m modules.Module_F_Tech_Indicators_Funnel.price_action.trendlines.trendl
 python -m modules.Module_F_Tech_Indicators_Funnel.price_action.trendlines.trendline_draw [--date YYYY-MM-DD] [--at HH:MM] [--show-live]
 python -m modules.Module_F_Tech_Indicators_Funnel.price_action.trendlines.trendline_confluence [--date YYYY-MM-DD] [--at HH:MM]
 
-# All indicator tests (expect 622 passed: EMA 63 + MACD 66 + ADX 61 + EMA break 19 + indicator_common 74 + RSI 86
-#   + Stochastic RSI 97 + price_action 143 + studies 13; runbook §4.11)
+# Expired Nifty contracts (§2.21) — probe / check read-only; fetch writes R2; audit read-only
+python -m modules.market_data.upstox.probe_expired_contracts
+python -m modules.market_data.upstox.check_1m_vs_5m_expired
+python -m modules.market_data.upstox.fetch_expired_nifty_options [--parts band,futures,rest] [--limit N] [--expiry YYYY-MM-DD] [--force] [--gap S]
+python -m modules.market_data.upstox.audit_expired_archive
+
+# Options sample days + candidate charts (§2.22) — read-only
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.options_sample_days.sample_days_run [--start YYYY-MM-DD] [--events CSV]
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.options_sample_days.candidate_contracts [--candidates CSV]
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.options_sample_days.candidate_charts [--day YYYY-MM-DD]
+
+# Options IV / Greeks (§2.23) — archive_greeks writes R2; live check during market hours
+python -m modules.Module_F_Tech_Indicators_Funnel.options_indicators.greeks.archive_greeks [--candidates] [--expiry YYYY-MM-DD] [--force] [--limit N]
+python -m modules.Module_F_Tech_Indicators_Funnel.options_indicators.greeks.live_greeks_check [--snapshots N] [--every S] [--expiry YYYY-MM-DD]
+python -m modules.Module_F_Tech_Indicators_Funnel.options_indicators.greeks.verify_options_archive [--days N] [--skip-nse]
+
+# All indicator tests (expect 648 passed: EMA 63 + MACD 66 + ADX 61 + EMA break 19 + indicator_common 74 + RSI 86
+#   + Stochastic RSI 97 + price_action 143 + studies 13 + options sample days 16 + options Greeks 10; runbook §4.11 has 622)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel -v
 ```
 

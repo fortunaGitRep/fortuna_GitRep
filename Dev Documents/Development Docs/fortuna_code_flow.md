@@ -3,9 +3,10 @@
 How the data-layer pieces connect. Read top-to-bottom to understand the flow from
 "nothing" to "populated catalogue + (future) price/fundamentals data."
 
-Last updated: 2026-09-06. All three steps are now BUILT (catalogue, OHLCV, fundamentals) —
+Last updated: 2026-10-30. All three steps are now BUILT (catalogue, OHLCV, fundamentals) —
 plus daily OHLCV refresh (now with concurrency + cooldown), options-intraday OHLCV,
-and daily news — all also BUILT.
+daily news, and (2026-10-27 → 29) the expired Nifty options + futures archive with
+computed IV / Greeks — all also BUILT. (Indicators: see `fortuna_data_pipeline_flow.md` §2.11+.)
 
 > **For the DEEP pipeline reference** (full call-trees, per-stock walk-throughs, rate-limit
 > playbook, verification quirks + SQL) see `fortuna_data_pipeline_flow.md`. This doc is the
@@ -207,8 +208,32 @@ invalid-key error class specifically to isolate one bad key without losing the o
 at the source (`is_active=false`) rather than a second exclusion list. Full detail:
 `fortuna_data_pipeline_flow.md` §2A.
 
-**Not yet built:** live option chain snapshots (15-min cadence, 208 F&O stocks) and
-expired option historical candles (Plus-gated, 6-month expiry depth limit found).
+## Step 2d flow — expired Nifty options archive + IV / Greeks (BUILT, 2026-10-27 → 29)
+
+```
+   Upstox Plus (/v2/expired-instruments/...)      Nifty 50 5m from R2 (strike band per week)
+        |                                               |
+        v                                               v
+   fetch_expired_nifty_options.py  --parts band,futures,rest   (one Parquet per expiry, R2 listing = ledger)
+        |   band    ATM ±9 strikes, 1m   -> upstox/nifty_options_expired/1m/
+        |   futures monthly, 1m          -> upstox/nifty_futures_expired/1m/
+        |   rest    rest of chain, 30m   -> upstox/nifty_options_expired/rest_30m/
+        v
+   audit_expired_archive.py  (read-only check)      expired_archive_reader.py  (read side, all parts)
+                                                          |
+                                                          v
+   options_indicators/greeks/archive_greeks.py  -> black76 (forward from put-call parity, IV, Greeks)
+        |   -> upstox/nifty_options_greeks/1m/
+        v
+   studies/options_sample_days/ (sample days, candidate contracts, HTML charts)
+```
+109 weekly expiries (3 Oct 2024 → 27 Oct 2026, Upstox's rolling ~2-year window), kept
+forever. 1m is the base (Upstox 5m = 5m built from 1m, 9 / 9 contracts). Greeks checked
+against Upstox's live option chain (`live_greeks_check.py`, IV ~0.1 point). Refresh = the
+same commands after each Tuesday expiry (stored weeks skipped), Nifty intraday first.
+Full detail: `fortuna_data_pipeline_flow.md` §2.21–2.23; spec `OPTIONS_GREEKS.md`.
+
+**Not yet built:** live option chain snapshots (15-min cadence, 208 F&O stocks).
 
 ## Step 3 flow — Fundamentals, stocks only (BUILT)
 
@@ -264,6 +289,11 @@ python -m modules.market_data.upstox.refresh_universe_ohlcv [--limit N] [--quiet
 # Options-intraday OHLCV, F&O stocks only (Step 2c):
 python -m modules.market_data.upstox.fetch_universe_options_intraday_ohlcv   [--limit N]
 python -m modules.market_data.upstox.refresh_universe_options_intraday_ohlcv [--limit N]
+
+# Expired Nifty options + futures archive (Step 2d) — after each Tuesday expiry, Nifty intraday refresh first:
+python -m modules.market_data.upstox.fetch_expired_nifty_options --parts band,futures,rest [--limit N] [--expiry YYYY-MM-DD] [--force]
+python -m modules.market_data.upstox.audit_expired_archive
+python -m modules.Module_F_Tech_Indicators_Funnel.options_indicators.greeks.archive_greeks [--expiry YYYY-MM-DD] [--force]
 
 # Daily news, all instruments (Step 4):
 python -m modules.market_data.upstox.fetch_daily_news [--limit N] [--quiet]
