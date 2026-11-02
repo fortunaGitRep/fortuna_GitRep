@@ -5,7 +5,7 @@
 function calls which), the step‑by‑step algorithms, every real file/function/table name,
 and the rate‑limit handling that shapes the whole thing.
 
-_Last updated: 2026‑11‑02 (options study: sample-day fixes §2.22 — day move from the official daily candle, phase look-ahead removed, day move / range in points; new contract pick §2.24 — 9 contracts with VWAP; §5 code map and logs, §6 commands; tests 648 → 660 expected). Earlier: 2026‑10‑30 (derivatives & options: expired Nifty contracts archive §2.21, options sample days + candidate charts §2.22, options IV / Greeks §2.23; §1 storage map, §5 code map, R2 keys, specs and logs, §6 commands; tests 622 → 648 expected). Earlier: 2026‑10‑26 (indicator sections brought up to date after 16 Oct: EMA break watch + studies §2.18, horizontal S&R lines + zones §2.19, trendline manual checks §2.20; §2.17 S&R folder name corrected; §5 code map, specs, logs and §6 commands; tests 508 → 622). Earlier: 2026‑10‑16 (indicator sections brought up to date: shared helpers `indicator_common/` §2.14, RSI §2.15, Stochastic RSI §2.16, market structure `price_action/` §2.17; §5 code map and §6 commands; specs in Fortuna Indicators/). Earlier: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
+_Last updated: 2026‑11‑02, later (Fortuna Predictor step A §2.25 — day table, day viewer, futures 5m parity check; §5 code map and logs, §6 commands; tests 660 → 672 expected). Earlier same day: (options study: sample-day fixes §2.22 — day move from the official daily candle, phase look-ahead removed, day move / range in points; new contract pick §2.24 — 9 contracts with VWAP; §5 code map and logs, §6 commands; tests 648 → 660 expected). Earlier: 2026‑10‑30 (derivatives & options: expired Nifty contracts archive §2.21, options sample days + candidate charts §2.22, options IV / Greeks §2.23; §1 storage map, §5 code map, R2 keys, specs and logs, §6 commands; tests 622 → 648 expected). Earlier: 2026‑10‑26 (indicator sections brought up to date after 16 Oct: EMA break watch + studies §2.18, horizontal S&R lines + zones §2.19, trendline manual checks §2.20; §2.17 S&R folder name corrected; §5 code map, specs, logs and §6 commands; tests 508 → 622). Earlier: 2026‑10‑16 (indicator sections brought up to date: shared helpers `indicator_common/` §2.14, RSI §2.15, Stochastic RSI §2.16, market structure `price_action/` §2.17; §5 code map and §6 commands; specs in Fortuna Indicators/). Earlier: 2026‑10‑12 (ADX / DMI complete §2.13; spec Fortuna Indicators/ADX.md). Earlier same day: (MACD complete §2.12: reader rule 2 + intraday reads, `compute_macd`, trend/momentum states + labels, snapshot texts; values and cross dates exact on all six timeframes vs broker TradingView charts; MACD/EMA logs under `logs/`; spec in Fortuna Indicators/MACD.md). Earlier: 2026‑10‑11 (indicator reader + EMA parts 1–4 — values, crosses, stage/states, snapshot texts — built and matched to TradingView §2.11; spec in Fortuna Indicators/EMA.md). Earlier: 2026‑10‑08 (refresh after a long gap; Nifty 50 intraday pipeline §2.8; data verification — audit, window repair, probe, reader rules §2.9; indicator‑phase decisions §2.10). Earlier: 2026‑09‑06 (concurrency for refresh runtime; domain-aware fetch cooldown; jitter on retry backoff; file-logging gap fixed across all runners; confirmed same-calendar-day data gap in Upstox's historical-candle API)._
 
 ---
 
@@ -877,6 +877,30 @@ contract_pick.main(--day, --side CE|PE, --capital 100000)
   one shared time grid, zoom / scroll copied by bar position so all panes move together; table underneath.
 - Tests `test_contract_pick.py` 10 (+ `conftest.py` → `logs/options_contract_pick_logs/test_contract_pick.log`).
 
+### 2.25 Fortuna Predictor, step A — day table, `studies/predictor/predictor_days/` (2026‑11‑02)
+
+Read‑only. One row per trading day with the measures the day categories (Trend day, Swing‑trend, Average day, Chop day)
+will be decided from. Claude Doc "Fortuna Predictor" has the plan.
+```
+predictor_days_run.main(--start 2024-09-27)
+   [1/7] Nifty 1d + 5m (indicator reader)
+   [2/7] sample_days.build_day_table()                       ← candle, gap, expiry, phase, day move
+   [3/7] intraday_measures() → day_intraday() per day          first hour 09:15–10:15, extension, first break, hour blocks,
+                                                               first 30 min vs previous official close
+   [4/7] read_part("futures", every stored expiry) → futures_volume()   near‑month = first stored expiry on / after the day
+   [5/7] build_predictor_days(): prior_average() (previous 20 days with a value, blanks skipped), narrow_range_prev() (NR4 / NR7)
+         → logs/predictor_days_logs/predictor_days.csv
+   [6/7] viewer_data() + to_5m() → predictor_days.html (one page, all days)
+   [7/7] summary (blanks per key column) + parity list → predictor_days.log
+```
+- `futures_parity_check.py` (`--key`, `--from`, `--to`): live futures 1m and 5m from Upstox via `_ohlcv_engine.fetch_full_history`,
+  5m built by `to_5m()`, every candle compared → `futures_parity_check.log` / `.csv`. Result 2 Nov (NSE_FO|61471, 26 Aug → 30 Oct
+  2026): 3,465 / 3,465 candles exact on O / H / L / C / volume.
+- Blanks by design: first hour on evening‑only sessions; futures volume on the Dec 2024 futures gap and after the last expired
+  monthly; 20‑day averages for the first 20 days of futures history. Futures lots follow each contract's lot (25 / 75 / 65) —
+  compare units or × average.
+- Tests `test_predictor_days.py` 12 (+ `conftest.py` → `logs/predictor_days_logs/test_predictor_days.log`).
+
 ---
 
 ## 2A. News pipeline (BUILT — 2026‑09‑04)
@@ -1240,6 +1264,9 @@ be re‑fetched later).
 | `studies/options_sample_days/test_sample_days.py`, `conftest.py` | 18 unit tests (§2.22) |
 | `studies/options_contract_pick/contract_pick.py` | `atm_strike()`, `ladder()`, `contract_stats()`, `to_5m()`, `session_vwap()`, `reading_notes()`, `build()`, `write_outputs()` — 9 contracts on one day, HTML chart + table (§2.24) |
 | `studies/options_contract_pick/test_contract_pick.py`, `conftest.py` | 10 unit tests (§2.24) |
+| `studies/predictor/predictor_days/predictor_days.py` | `day_intraday()`, `intraday_measures()`, `near_month()`, `futures_volume()`, `to_5m()`, `prior_average()`, `narrow_range_prev()`, `build_predictor_days()`, `ordered()` — pure (§2.25) |
+| `studies/predictor/predictor_days/predictor_days_run.py`, `futures_parity_check.py` | day table + day viewer run; live futures 5m parity check (§2.25) |
+| `studies/predictor/predictor_days/test_predictor_days.py`, `conftest.py` | 12 unit tests (§2.25) |
 | `options_indicators/greeks/black76.py` | `price()`, `implied_vol()`, `greeks()`, `forward_from_parity()` — Black's model, vectorised (§2.23) |
 | `options_indicators/greeks/archive_greeks.py` | `minutes_to_expiry()`, `forward_by_minute()`, `compute_expiry()`, `quality()` → R2 greeks part (§2.23) |
 | `options_indicators/greeks/live_greeks_check.py` | TC‑GK‑01 vs Upstox live option chain (§2.23) |
@@ -1257,7 +1284,7 @@ MACD → `logs/macd_test_logs/` (`macd_check_<timeframe>.log`, `macd_check_<time
 (`market_structure_snapshot.log`, one log per test file); EMA break → `logs/ema_break_test_logs/`; studies →
 `logs/studies_logs/`; horizontal S&R → `logs/horizontal_sr_test_logs/`; trendlines → `logs/trendline_test_logs/`
 (logs + HTML charts); options sample days → `logs/options_sample_days_logs/`, candidate charts →
-`logs/options_candidate_charts/`, contract pick → `logs/options_contract_pick_logs/`; IV / Greeks → `logs/options_greeks_logs/`, `logs/live_greeks_check_logs/`, `logs/options_verify_logs/`;
+`logs/options_candidate_charts/`, contract pick → `logs/options_contract_pick_logs/`, predictor days → `logs/predictor_days_logs/`; IV / Greeks → `logs/options_greeks_logs/`, `logs/live_greeks_check_logs/`, `logs/options_verify_logs/`;
 expired archive → `logs/expired_contracts_probe_logs/`, `logs/expired_options_fetch_logs/` (`fetch_run.log` appended,
 `fetch_summary.log`), `logs/expired_options_audit_logs/`. Full list: runbook §9. The reader's own check still prints to screen only.
 Testing & verification records live in the spec docs (`EMA.md` §13, `MACD.md` §14, `ADX.md` §9, `RSI.md` §9, `STOCH_RSI.md` §9, `MARKET_STRUCTURE.md` §8–9, `EMA_BREAK.md`, `SUPPORT_RESISTANCE.md` §4.11 / §4.13, `TRENDLINES.md` §10–11).
@@ -1374,13 +1401,18 @@ python -m modules.Module_F_Tech_Indicators_Funnel.studies.options_sample_days.ca
 # Options contract pick (§2.24) — read-only; contract study uses sample days run with --start 2024-09-27
 python -m modules.Module_F_Tech_Indicators_Funnel.studies.options_contract_pick.contract_pick --day YYYY-MM-DD [--side CE|PE] [--capital 100000]
 
+# Fortuna Predictor step A (§2.25) — read-only; the parity check calls Upstox (no writes)
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.predictor.predictor_days.predictor_days_run [--start YYYY-MM-DD]
+python -m modules.Module_F_Tech_Indicators_Funnel.studies.predictor.predictor_days.futures_parity_check [--key KEY] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+
 # Options IV / Greeks (§2.23) — archive_greeks writes R2; live check during market hours
 python -m modules.Module_F_Tech_Indicators_Funnel.options_indicators.greeks.archive_greeks [--candidates] [--expiry YYYY-MM-DD] [--force] [--limit N]
 python -m modules.Module_F_Tech_Indicators_Funnel.options_indicators.greeks.live_greeks_check [--snapshots N] [--every S] [--expiry YYYY-MM-DD]
 python -m modules.Module_F_Tech_Indicators_Funnel.options_indicators.greeks.verify_options_archive [--days N] [--skip-nse]
 
-# All indicator tests (expect 660 passed: EMA 63 + MACD 66 + ADX 61 + EMA break 19 + indicator_common 74 + RSI 86
-#   + Stochastic RSI 97 + price_action 143 + studies 13 + options sample days 18 + contract pick 10 + options Greeks 10; same as runbook §4.11)
+# All indicator tests (expect 672 passed: EMA 63 + MACD 66 + ADX 61 + EMA break 19 + indicator_common 74 + RSI 86
+#   + Stochastic RSI 97 + price_action 143 + studies 13 + options sample days 18 + contract pick 10 + predictor days 12
+#   + options Greeks 10; same as runbook §4.11)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel -v
 ```
 
