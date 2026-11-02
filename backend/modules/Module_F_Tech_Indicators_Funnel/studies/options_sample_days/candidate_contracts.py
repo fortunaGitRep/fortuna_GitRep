@@ -93,7 +93,8 @@ def build(candidates: pd.DataFrame) -> pd.DataFrame:
     rows = [map_day(d, opens.get(d), all_exp, band_exp, fut_exp) for d in cands["trade_date"]]
     out = pd.DataFrame(rows)
     keep = [c for c in ("trade_date", "weekday", "era", "dte", "colour", "body_ratio", "phase", "move_timing",
-                        "gap_type", "window_move_pts", "covers") if c in cands.columns]
+                        "gap_type", "day_move_pts", "day_range_pts", "window_move_pts", "covers")
+            if c in cands.columns]
     return cands[keep].merge(out, on="trade_date", how="left")
 
 

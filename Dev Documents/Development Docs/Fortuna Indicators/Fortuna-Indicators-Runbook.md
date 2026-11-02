@@ -6,7 +6,7 @@ the known differences, fix the common errors, and add the next indicator the sam
 of each indicator lives in its spec (`EMA.md`, `MACD.md`, `ADX.md` — §0 of each is the plain‑English
 definition; `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md`, `SUPPORT_RESISTANCE.md`, `TRENDLINES.md`, `EMA_BREAK.md` and `OPTIONS_GREEKS.md` too). Stored with the specs in `Dev Documents\Development Docs\Fortuna Indicators\`.
 
-_Version 2.0 — 2026‑10‑30. Covers: indicator reader, EMA, EMA break watch, MACD, ADX / DMI, RSI, Stochastic RSI, market structure, horizontal S&R (lines + zones check) and the trendline manual checks (`price_action/`), shared helpers (`indicator_common/`), studies (`studies/`, incl. the options sample days), **options IV / Greeks (`options_indicators/greeks/`)**. The expired‑contract archive they read is a data job: `fortuna_data_pipeline_flow.md` §2.21._
+_Version 2.1 — 2026‑11‑02. Covers: indicator reader, EMA, EMA break watch, MACD, ADX / DMI, RSI, Stochastic RSI, market structure, horizontal S&R (lines + zones check) and the trendline manual checks (`price_action/`), shared helpers (`indicator_common/`), studies (`studies/`, incl. the options sample days and contract pick), **options IV / Greeks (`options_indicators/greeks/`)**. The expired‑contract archive they read is a data job: `fortuna_data_pipeline_flow.md` §2.21._
 
 ---
 
@@ -24,6 +24,7 @@ _Version 2.0 — 2026‑10‑30. Covers: indicator reader, EMA, EMA break watch,
 | **Horizontal S&R** (every Zig Zag swing a line) | **Where price can stop**: R1, R2, R3… above and S1, S2, S3… below on each timeframe, plus the trading ladder (all timeframes on the 5m chart); PDO / PDH / PDL / PDC tags. **Zones** (manual check, stopped with open items): each swing wick → body, overlapping zones merged, touches, wick break | 1M 1W 1D 60m 15m 5m + trading ladder | `SUPPORT_RESISTANCE.md` §4, §4.13 | `price_action/horizontal_sr/` |
 | **Options IV / Greeks** (Black's model, forward from put‑call parity) | **What the option premium is pricing**: IV, delta, gamma, theta (per day, Upstox convention), vega, strikes OTM, OI change — every expired Nifty weekly contract in the archive (ATM ±9), every minute; checked vs Upstox live, NSE bhavcopy and India VIX | 1m (build 5m / 15m from it) | `OPTIONS_GREEKS.md` | `options_indicators/greeks/` |
 | **Options sample days** (study, read‑only) | **Which Nifty days to study and their contracts**: day labels, Wyckoff phase, expiry calendar, candidates per test case; charts of Nifty / CE / PE / futures on one time axis | 1D labels · 5m / 15m / 1m charts | Claude Doc "Fortuna — Derivatives & Options Checklist" §11; test cases `Fortuna_Options_SampleDay_TestCases.xlsx` | `studies/options_sample_days/` |
+| **Options contract pick** (study, read‑only) | **Which contract to trade**: on one day, the 9 contracts ITM 4 → OTM 4 bought at 09:30 — real premiums with session VWAP, lot cost, lots and profit with ₹1 lakh, dip before the high, Greeks / volume / OI at 09:30 | 5m / 1m chart | Claude Docs "Fortuna — Derivatives & Options Checklist" §11, "Fortuna Predictor" | `studies/options_contract_pick/` |
 | **Trendlines** (manual checks — not a module yet) | **Ash's falling / rising trendlines**: (old) chain check — line 1 / 2 / 3 + vertical, entries, after the break, draft exits (on hold); (new) **Ash's 17-step drawing on every timeframe** — outline of the wicks from the extreme, wick break, trend per timeframe, horizontal S&R targets, charts per timeframe (5m: 7 days) + combined + 7-day 5m zones; all timeframes on one chart (`trendline_confluence`) | old: 5m · new: 1M 1W 1D 1h 15m 5m | `TRENDLINES.md` | `price_action/trendlines/` |
 
 Read them together: EMA = direction, MACD = momentum, ADX = strength, RSI = momentum level, Stochastic RSI = where RSI
@@ -371,9 +372,24 @@ python -m …studies.options_sample_days.candidate_charts [--day YYYY-MM-DD]
 ```
 | Run | Prints / files |
 |---|---|
-| `sample_days_run` | day table (colour, strong ≥ 60% body, gap, phase, era, DTE, window move / timing), candidates per test case, coverage → `logs\options_sample_days_logs\` (`day_table.csv`, `candidates.csv`, `sample_days_report.log`, `sample_days_chart.html`); `--events` = CSV `date,event` |
-| `candidate_contracts` | each candidate day → expiry, week start, ATM, ITM2 / ATM / OTM2 CE and PE, futures month, known‑gap flags → `logs\options_candidate_charts\candidate_contracts.csv` / `.log` |
+| `sample_days_run` | day table (colour, strong ≥ 60% body, gap, phase, era, DTE, day move % and points and range from the official candle, window move / timing), candidates per test case, coverage → `logs\options_sample_days_logs\` (`day_table.csv`, `candidates.csv`, `sample_days_report.log`, `sample_days_chart.html`); `--events` = CSV `date,event` |
+| `candidate_contracts` | each candidate day → expiry, week start, ATM, ITM2 / ATM / OTM2 CE and PE, futures month, day move / range in points, known‑gap flags → `logs\options_candidate_charts\candidate_contracts.csv` / `.log` |
 | `candidate_charts` | one HTML page per day + `index.html` in `logs\options_candidate_charts\`: Nifty 5m, CE, PE, futures from the week start; 5m / 15m / 1m; strike selectors; 09:30 / 11:30 arrows; cursor legend OHLC + volume + OI (internet needed for the chart library) |
+
+For the contract study always run `sample_days_run --start 2024-09-27` (the archive's first week); without `--start`
+the run covers 2022 → and `candidate_contracts` flags every day before Oct 2024 (no contracts).
+
+### 4.10c Options contract pick (`studies/options_contract_pick/`, read‑only)
+
+```
+python -m …studies.options_contract_pick.contract_pick --day YYYY-MM-DD [--side CE|PE] [--capital 100000]
+```
+| Run | Prints / files (`logs\options_contract_pick_logs\`) |
+|---|---|
+| `contract_pick` | ATM = strike nearest Nifty at 09:30; the 9 contracts ITM 4 → OTM 4 (PE: ITM above ATM): premium at 09:30, lot size, 1 lot cost, lots with the capital + cash left, high and its time (to 15:10), premium at 11:30 / 15:10, move, profit at the high / 11:30 / 15:10 (before charges), dip before the high, delta / theta / IV, volume / OI in lots → `contract_pick_<day>_<side>.html` (Nifty 5m + 9 contract panes, VWAP, 5m / 1m switch, all panes zoom together, table), `.csv`, `contract_pick.log`. Internet needed for the chart library. |
+
+VWAP = Dhan / TradingView "VWAP hlc3 Session" on the shown timeframe; Nifty has no VWAP (no index volume). On an expiry
+day the IV column is flagged (IV reads high near expiry).
 
 ### 4.11 Unit tests (no R2 needed, safe any time)
 
@@ -385,12 +401,12 @@ python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/adx -v
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators/ema_break -v # 19 = ema_break 10 + snapshot 9 (screen only; each file below writes its own log)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/trend_indicators -v          # all four (209); each log still gets only its own tests
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/indicator_common -v          # 74 = shared helpers 57 + line_reaction_study 17 → logs\indicator_common_test_logs\test_indicator_common.log
-python -m pytest modules/Module_F_Tech_Indicators_Funnel/studies -v                   # 29 = EMA S&R study 13 + options sample days 16 (screen only; each writes its own log)
+python -m pytest modules/Module_F_Tech_Indicators_Funnel/studies -v                   # 41 = EMA S&R study 13 + options sample days 18 + contract pick 10 (screen only; each writes its own log)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/options_indicators -v        # 10 = black76 6 + archive_greeks 4 (screen only)
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/rsi -v           # 86 → logs\rsi_test_logs\test_rsi.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/oscillators/stoch_rsi -v     # 97 → logs\stoch_rsi_test_logs\test_stoch_rsi.log
 python -m pytest modules/Module_F_Tech_Indicators_Funnel/price_action -v              # 143 = market structure 78 + horizontal S&R 65 (screen only; each file below writes its own log)
-python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 648 (63 + 66 + 61 + 19 + 74 + 86 + 97 + 143 + 29 + 10) — expected, first full run pending
+python -m pytest modules/Module_F_Tech_Indicators_Funnel -v                           # everything: 660 (63 + 66 + 61 + 19 + 74 + 86 + 97 + 143 + 41 + 10) — expected, first full run pending
 python -m pytest modules/Module_F_Tech_Indicators_Funnel -v | Tee-Object -FilePath logs\indicator_suite_tests.log   # same, saved to a log (PowerShell)
 ```
 Market structure test files also run one at a time and write their own log, e.g.
@@ -404,7 +420,8 @@ Same for the new files: `trend_indicators.ema_break.test_ema_break` → `logs\em
 `…test_ema_break_snapshot` → `ema_break_snapshot_unit_tests.log` 9 (prints six "EMA break watch failed … R2 down" tracebacks on
 purpose — the never‑raises test); `indicator_common.test_line_reaction_study` →
 `logs\indicator_common_test_logs\line_reaction_study_unit_tests.log` 17; `studies.ema_sr.test_ema_sr_study` →
-`logs\studies_logs\ema_sr_study_unit_tests.log` 13; `studies/options_sample_days/test_sample_days.py` → `logs\options_sample_days_logs\test_sample_days.log` 16.
+`logs\studies_logs\ema_sr_study_unit_tests.log` 13; `studies/options_sample_days/test_sample_days.py` → `logs\options_sample_days_logs\test_sample_days.log` 18;
+`studies/options_contract_pick/test_contract_pick.py` → `logs\options_contract_pick_logs\test_contract_pick.log` 10.
 
 **Expected: every test PASSED, last line `summary: N passed`, `exit status: 0`.** Run the tests after any
 code change, before committing. What each test proves: `EMA.md` §13.1, `MACD.md` §14.1, `ADX.md` §9, `RSI.md` §9,
@@ -576,6 +593,7 @@ gaps, staleness, rollups (`fortuna_data_pipeline_flow.md` §2.9).
 | `studies_logs\` | `ema_sr_study.log` · `ema_sr_study_progress.log` · `ema_sr_episodes.csv` · `ema_sr_study_unit_tests.log` |
 | `options_sample_days_logs\` | `day_table.csv` · `candidates.csv` · `sample_days_report.log` · `sample_days_chart.html` · `test_sample_days.log` |
 | `options_candidate_charts\` | `candidate_contracts.csv` · `candidate_contracts.log` · `index.html` · `<date>.html` (one per candidate day) |
+| `options_contract_pick_logs\` | `contract_pick_<day>_<side>.html` · `contract_pick_<day>_<side>.csv` (one pair per day / side run) · `contract_pick.log` · `test_contract_pick.log` |
 | `options_greeks_logs\` | `greeks_run.log` · `greeks_summary.log` |
 | `live_greeks_check_logs\` | `check.log` · `snapshots.csv` (appended each run) |
 | `options_verify_logs\` | `verify.log` · `nse_compare.csv` · `verify_chart.html` · `bhavcopy\` (NSE files, reused) |
@@ -624,6 +642,7 @@ All overwritten on each run (except `snapshots.csv`). The expired‑contract arc
 |---|---|
 | What an indicator means and how to read it | spec §0 (`EMA.md`, `MACD.md`, `ADX.md`, `RSI.md`, `STOCH_RSI.md`, `MARKET_STRUCTURE.md`, `EMA_BREAK.md`); S&R types and rules: `SUPPORT_RESISTANCE.md`; trendlines: `TRENDLINES.md`; options IV / Greeks: `OPTIONS_GREEKS.md` |
 | Options plan, decisions, progress, reading traps | Claude Doc "Fortuna — Derivatives & Options Checklist" |
+| Day categories and the predictor idea | Claude Doc "Fortuna Predictor" |
 | Why EMAs are not S&R on Nifty (study, results, method lessons) | `SUPPORT_RESISTANCE.md` §5 |
 | Every market‑structure decision, in the order it was made | "Fortuna — Market Structure Build Plan" (exported next to the specs) |
 | Exact formulas, labels, texts, thresholds | the spec |
@@ -635,6 +654,9 @@ All overwritten on each run (except `snapshots.csv`). The expired‑contract arc
 ---
 
 ## 12. Change log
+- **v2.1 — 2026‑11‑02.** Options contract pick (`studies/options_contract_pick/`): §1 table row, new §4.10c, §4.10b note to run
+  sample days with `--start 2024-09-27` and the new day move / range columns, tests §4.11 (sample days 18, contract pick 10,
+  studies 41, total 660 expected), §9 new log folder, §11 Fortuna Predictor doc.
 - **v2.0 — 2026‑10‑30.** Options: IV / Greeks (`options_indicators/greeks/`: `archive_greeks`, `live_greeks_check`,
   `verify_options_archive`) and the options sample days study (`studies/options_sample_days/`): §1 table rows, §2 prefix
   `…options_indicators`, §3 post‑expiry routine, new §4.10a / §4.10b, tests §4.11 (studies 29, options 10, total 648

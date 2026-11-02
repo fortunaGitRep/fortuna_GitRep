@@ -3,7 +3,7 @@
 How the data-layer pieces connect. Read top-to-bottom to understand the flow from
 "nothing" to "populated catalogue + (future) price/fundamentals data."
 
-Last updated: 2026-10-30. All three steps are now BUILT (catalogue, OHLCV, fundamentals) —
+Last updated: 2026-11-02 (options study: sample-day fixes, contract pick — Step 2d). Earlier: 2026-10-30. All three steps are now BUILT (catalogue, OHLCV, fundamentals) —
 plus daily OHLCV refresh (now with concurrency + cooldown), options-intraday OHLCV,
 daily news, and (2026-10-27 → 29) the expired Nifty options + futures archive with
 computed IV / Greeks — all also BUILT. (Indicators: see `fortuna_data_pipeline_flow.md` §2.11+.)
@@ -226,12 +226,13 @@ at the source (`is_active=false`) rather than a second exclusion list. Full deta
         |   -> upstox/nifty_options_greeks/1m/
         v
    studies/options_sample_days/ (sample days, candidate contracts, HTML charts)
+   studies/options_contract_pick/ (one day: 9 contracts ITM 4 → OTM 4, VWAP, ₹1 lakh lots / profit)
 ```
 109 weekly expiries (3 Oct 2024 → 27 Oct 2026, Upstox's rolling ~2-year window), kept
 forever. 1m is the base (Upstox 5m = 5m built from 1m, 9 / 9 contracts). Greeks checked
 against Upstox's live option chain (`live_greeks_check.py`, IV ~0.1 point). Refresh = the
 same commands after each Tuesday expiry (stored weeks skipped), Nifty intraday first.
-Full detail: `fortuna_data_pipeline_flow.md` §2.21–2.23; spec `OPTIONS_GREEKS.md`.
+Full detail: `fortuna_data_pipeline_flow.md` §2.21–2.24; spec `OPTIONS_GREEKS.md`.
 
 **Not yet built:** live option chain snapshots (15-min cadence, 208 F&O stocks).
 

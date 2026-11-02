@@ -12,8 +12,9 @@ Per trading day:
   strong / colour        TC-SEL-01, 02  official daily candle (reader rule 4)
   gap                    TC-NB-04       09:15 open vs previous close
   expiry / dte / era     TC-DATA-02     trading days left to expiry (Tuesday era: Wed 4 ... Tue 0)
-  phase                  TC-SEL-04      Wyckoff phase from LOCKED daily Zig Zag swings
-  move timing            TC-NB-01       share of the day's move done by 11:30 (5m)
+  phase                  TC-SEL-04      Wyckoff phase from daily Zig Zag swings LOCKED before the day
+  day move / timing      TC-NB-01       official daily candle's move (% and points) and range (points);
+                                        share of the move done by 11:30 (5m price)
   window move            TC-NB-03       Nifty move 09:30 -> 11:30 (5m)
   event                  TC-NB-05       from an event CSV when one is given
 Candidates: strongest strong days covering month x colour, phase x colour (whole window)
@@ -48,7 +49,7 @@ DAY_COLUMNS = [
     "trade_date", "weekday", "month", "open", "high", "low", "close",
     "body_ratio", "strong", "colour", "prev_close", "gap_pct", "gap_type",
     "expiry_date", "dte", "era", "expiry_assumed", "phase", "phase_basis",
-    "move_pct", "share_by_1130", "move_timing",
+    "move_pct", "day_move_pts", "day_range_pts", "share_by_1130", "move_timing",
     "window_move_pts", "window_run_pts", "event",
 ]
 
@@ -133,7 +134,8 @@ def phase_by_day(trade_dates, swings: pd.DataFrame, equal_tol_pct: float) -> pd.
     """
     swings: output of find_zigzag_swings() on DAILY candles
             (kind 'high'/'low', price, pivot_time, locked_time, is_locked).
-    For each day only swings LOCKED by that day's close are used (no lookahead).
+    For each day only swings LOCKED BEFORE that day are used: a swing that locks at a
+    day's close is not known while trading that day (no lookahead).
     Pass ALL daily dates so the 'last trend' memory is built from full history.
       last two highs higher and last two lows higher -> markup
       last two highs lower  and last two lows lower  -> markdown
@@ -146,7 +148,7 @@ def phase_by_day(trade_dates, swings: pd.DataFrame, equal_tol_pct: float) -> pd.
     sw = sw.sort_values("locked_time")
     rows, last_trend = [], None
     for d in sorted(pd.Timestamp(x).date() for x in trade_dates):
-        known = sw[sw["locked_date"] <= d]
+        known = sw[sw["locked_date"] < d]
         highs = known[known["kind"] == "high"]["price"].tolist()
         lows = known[known["kind"] == "low"]["price"].tolist()
         if len(highs) < 2 or len(lows) < 2:
@@ -182,46 +184,68 @@ def _tag(cmp: str, side: str) -> str:
 
 
 # ----------------------------------------------------------------------------- 5m timing
+INTRADAY_COLUMNS = ["trade_date", "close_1130", "window_open", "window_high", "window_low", "window_move_pts"]
+
+
 def intraday_profile(five_min: pd.DataFrame) -> pd.DataFrame:
     """
     five_min: ts (IST), trade_date, open, high, low, close -- reader rules applied.
-    Per day:
-      move_pct        (last close - first open) / first open, %
-      share_by_1130   part of the day's move done by the close of the last bar before 11:30
-      move_timing     morning / all_day / late / flat (thresholds above)
-      window_move_pts close before 11:30 minus open of the 09:30 bar
-      window_run_pts  best run inside 09:30-11:30 in the day's direction, from the 09:30 open
+    Per day, only what needs intraday bars:
+      close_1130                 close of the last bar before 11:30
+      window_open                open of the 09:30 bar
+      window_high / window_low   high / low inside 09:30-11:30
+      window_move_pts            close before 11:30 minus open of the 09:30 bar
+    The day's own move is NOT taken from 5m bars: the last 5m close is a last trade, not
+    NSE's official close. day_move_labels() uses the official daily candle.
     """
     f = five_min.copy()
-    ts = pd.to_datetime(f["ts"])
-    f["t"] = ts.dt.time
+    f["t"] = pd.to_datetime(f["ts"]).dt.time
     f["trade_date"] = pd.to_datetime(f["trade_date"]).dt.date
     f = f.sort_values("ts")
     rows = []
     for d, g in f.groupby("trade_date", sort=True):
-        day_open, day_close = float(g["open"].iloc[0]), float(g["close"].iloc[-1])
-        move = day_close - day_open
         before = g[g["t"] < WINDOW_END]
         win = g[(g["t"] >= WINDOW_START) & (g["t"] < WINDOW_END)]
-        share = (float(before["close"].iloc[-1]) - day_open) / move if (len(before) and move) else np.nan
-        move_pct = 100.0 * move / day_open
-        if abs(move_pct) < FLAT_MOVE_PCT or np.isnan(share):
-            timing = "flat"
-        elif share >= MORNING_SHARE:
-            timing = "morning"
-        elif share <= LATE_SHARE:
-            timing = "late"
-        else:
-            timing = "all_day"
+        close_1130 = float(before["close"].iloc[-1]) if len(before) else np.nan
         if len(win):
             w_open = float(win["open"].iloc[0])
+            w_high, w_low = float(win["high"].max()), float(win["low"].min())
             w_move = float(win["close"].iloc[-1]) - w_open
-            w_run = (float(win["high"].max()) - w_open) if move >= 0 else (w_open - float(win["low"].min()))
         else:
-            w_move = w_run = np.nan
-        rows.append((d, move_pct, share, timing, w_move, w_run))
-    return pd.DataFrame(rows, columns=["trade_date", "move_pct", "share_by_1130", "move_timing",
-                                       "window_move_pts", "window_run_pts"])
+            w_open = w_high = w_low = w_move = np.nan
+        rows.append((d, close_1130, w_open, w_high, w_low, w_move))
+    return pd.DataFrame(rows, columns=INTRADAY_COLUMNS)
+
+
+def day_move_labels(d: pd.DataFrame) -> pd.DataFrame:
+    """
+    d: official daily open / close merged with intraday_profile() columns.
+    Adds:
+      move_pct        (official close - official open) / official open, %
+      day_move_pts    official close - official open, points
+      day_range_pts   official high - official low, points
+      share_by_1130   (close before 11:30 - official open) / (official close - official open)
+      move_timing     morning / all_day / late / flat (thresholds above);
+                      'no 5m data' when the day has no bars before 11:30
+      window_run_pts  best run inside 09:30-11:30 in the day's direction (official candle),
+                      from the 09:30 open
+    """
+    out = d.copy()
+    move = out["close"] - out["open"]
+    out["move_pct"] = 100.0 * move / out["open"]
+    out["day_move_pts"] = move
+    out["day_range_pts"] = out["high"] - out["low"]
+    share = (out["close_1130"] - out["open"]) / move.where(move != 0)
+    out["share_by_1130"] = share
+    out["move_timing"] = np.select(
+        [out["close_1130"].isna(),
+         (out["move_pct"].abs() < FLAT_MOVE_PCT) | share.isna(),
+         share >= MORNING_SHARE,
+         share <= LATE_SHARE],
+        ["no 5m data", "flat", "morning", "late"], default="all_day")
+    out["window_run_pts"] = np.where(move >= 0, out["window_high"] - out["window_open"],
+                                     out["window_open"] - out["window_low"])
+    return out
 
 
 # ----------------------------------------------------------------------------- assemble
@@ -237,6 +261,7 @@ def build_day_table(daily: pd.DataFrame, five_min: pd.DataFrame, swings: pd.Data
     d = d.merge(exp, on="trade_date", how="left")
     d = d.merge(phases, on="trade_date", how="left")
     d = d.merge(intraday_profile(five_min), on="trade_date", how="left")
+    d = day_move_labels(d)
     if events is not None and len(events):
         ev = events.copy()
         ev["trade_date"] = pd.to_datetime(ev["date"]).dt.date
@@ -244,7 +269,6 @@ def build_day_table(daily: pd.DataFrame, five_min: pd.DataFrame, swings: pd.Data
         d = d.merge(ev, on="trade_date", how="left")
     else:
         d["event"] = None
-    d["move_timing"] = d["move_timing"].fillna("no 5m data")
     return d[DAY_COLUMNS + ["holiday_shifted"]].reset_index(drop=True)
 
 

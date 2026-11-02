@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from modules.Module_F_Tech_Indicators_Funnel.studies.options_sample_days.sample_days import (
-    build_day_table, daily_labels, expiry_calendar, intraday_profile, phase_by_day,
+    build_day_table, daily_labels, day_move_labels, expiry_calendar, intraday_profile, phase_by_day,
     coverage_report, pick_candidates,
 )
 
@@ -98,14 +98,15 @@ def test_phase_markup_then_distribution_no_lookahead():
         ("high", 120, "2025-02-01", "2025-02-05", True),
         ("low", 110, "2025-03-01", "2025-03-05", True),
         ("high", 130, "2025-04-01", "2025-04-05", True),   # HH + HL -> markup from 5 Apr
-        ("low", 105, "2025-05-01", "2025-05-05", True),    # HH + LL -> distribution from 5 May
+        ("low", 105, "2025-05-01", "2025-05-05", True),    # HH + LL -> distribution from 6 May
         ("high", 140, "2025-06-01", "2025-06-05", False),  # not locked: ignored
     ])
-    p = phase_by_day(pd.to_datetime(["2025-04-04", "2025-04-05", "2025-05-05", "2025-06-10"]),
+    p = phase_by_day(pd.to_datetime(["2025-04-05", "2025-04-06", "2025-05-05", "2025-05-06", "2025-06-10"]),
                      sw, 0.5).set_index("trade_date")["phase"]
-    assert pd.isna(p[date(2025, 4, 4)])                    # only one high locked yet
-    assert p[date(2025, 4, 5)] == "markup"
-    assert p[date(2025, 5, 5)] == "distribution"
+    assert pd.isna(p[date(2025, 4, 5)])                    # high locks at this close: not known yet
+    assert p[date(2025, 4, 6)] == "markup"
+    assert p[date(2025, 5, 5)] == "markup"                 # low locks at this close: not known yet
+    assert p[date(2025, 5, 6)] == "distribution"
     assert p[date(2025, 6, 10)] == "distribution"
 
 
@@ -132,6 +133,11 @@ def _five(day, closes, opens=None, start="09:15"):
                          "low": [min(o, c) for o, c in zip(opens, closes)], "close": closes})
 
 
+def _labelled(daily_rows, five):
+    return day_move_labels(daily_labels(_daily(daily_rows)).merge(
+        intraday_profile(five), on="trade_date", how="left")).set_index("trade_date")
+
+
 def test_timing_morning_all_day_late():
     n = 75                                    # 09:15 .. 15:25
     k = 27                                    # bars before 11:30
@@ -139,8 +145,29 @@ def test_timing_morning_all_day_late():
     late = [100] * k + [100 + 0.3 * (i - k) for i in range(k, n)]
     even = [100 + 0.2 * i for i in range(n)]
     f = pd.concat([_five("2025-09-03", morning), _five("2025-09-04", late), _five("2025-09-05", even)])
-    p = intraday_profile(f).set_index("trade_date")["move_timing"]
+    p = _labelled([("2025-09-03", 100, 111, 100, morning[-1]), ("2025-09-04", 100, 115, 100, late[-1]),
+                   ("2025-09-05", 100, 115, 100, even[-1])], f)["move_timing"]
     assert p.tolist() == ["morning", "late", "all_day"]
+
+
+def test_day_move_uses_official_close_not_last_5m():
+    closes = [100 + 0.1 * i for i in range(75)]          # last 5m close 107.4, 11:25 close 102.6
+    p = _labelled([("2025-09-03", 100, 110, 100, 110)], _five("2025-09-03", closes)).iloc[0]
+    assert p["move_pct"] == pytest.approx(10.0)          # official 100 -> 110, not 107.4
+    assert p["share_by_1130"] == pytest.approx(2.6 / 10)
+    assert p["day_move_pts"] == pytest.approx(10.0)          # 110 - 100
+    assert p["day_range_pts"] == pytest.approx(10.0)         # 110 - 100
+
+
+def test_window_run_follows_candle_colour_and_no_5m_day():
+    closes = [100, 101, 102, 103, 104, 99] + [99] * 69   # 09:30 open 102, window high 104, low 99
+    p = _labelled([("2025-09-03", 100, 105, 95, 96), ("2025-09-04", 96, 99, 95, 98)],
+                  _five("2025-09-03", closes))
+    assert p.loc[date(2025, 9, 3), "window_run_pts"] == pytest.approx(102 - 99)   # red day: run down
+    assert p.loc[date(2025, 9, 3), "day_move_pts"] == pytest.approx(-4.0)       # red: 96 - 100
+    assert p.loc[date(2025, 9, 3), "day_range_pts"] == pytest.approx(10.0)      # 105 - 95
+    assert p.loc[date(2025, 9, 4), "move_timing"] == "no 5m data"
+    assert p.loc[date(2025, 9, 4), "move_pct"] == pytest.approx(100 * 2 / 96)    # still from the candle
 
 
 def test_window_move_from_0930():
@@ -169,6 +196,9 @@ def test_build_day_table_runs_end_to_end():
     t = build_day_table(daily, five, sw, 0.5, start=date(2025, 9, 3))
     assert list(t["trade_date"]) == [date(2025, 9, 3), date(2025, 9, 4)]
     assert t["event"].isna().all()
+    assert t["move_pct"].tolist() == pytest.approx([7.0, 7.0])        # official candle: 100 -> 107
+    assert t["day_move_pts"].tolist() == pytest.approx([7.0, 7.0])
+    assert t["day_range_pts"].tolist() == pytest.approx([10.0, 10.0])
 
 
 def test_dte_coverage_uses_tuesday_era_only():
